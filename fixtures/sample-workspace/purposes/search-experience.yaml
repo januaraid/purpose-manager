@@ -1,0 +1,6 @@
+schema_version: 1
+id: search-experience
+parent: job-matching
+name: 検索体験
+purpose: 求職者が少ない操作で、自分に合う求人にたどり着けるようにする。
+status: active

@@ -1,0 +1,8 @@
+schema_version: 1
+id: search-relevance-2026h1
+parent: search-experience
+name: 検索結果の関連度改善（2026年上期）
+purpose: 検索条件に一致しない求人が上位に出ない状態にする。
+status: archived
+valid_from: 2026-04-01
+valid_until: 2026-09-30

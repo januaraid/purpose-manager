@@ -1,0 +1,6 @@
+schema_version: 1
+id: legacy-data-migration
+parent: legacy-portal
+name: 旧ポータルのデータ移行
+purpose: 旧ポータルの利用者データを失わずに引き継ぐ。
+status: active

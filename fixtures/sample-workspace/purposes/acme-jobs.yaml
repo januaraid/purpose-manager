@@ -1,0 +1,12 @@
+schema_version: 1
+id: acme-jobs
+parent: acme-corp
+name: Acme Jobs
+purpose: 求職者が自分に合った仕事に出会える状態をつくる。
+rationale: |
+  求人情報の量は増えたが、自分に合う仕事を見つけにくい状況は解消されていない。
+principles:
+  - 求職者を第一に考える
+  - 成果に応じて対価を得る
+  - シンプルさを保つ
+status: active

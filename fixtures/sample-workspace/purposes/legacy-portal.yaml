@@ -1,0 +1,6 @@
+schema_version: 1
+id: legacy-portal
+parent: acme-corp
+name: 旧ポータル
+purpose: 旧来の求人ポータルの利用者を支える。
+status: archived

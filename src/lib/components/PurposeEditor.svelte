@@ -1,0 +1,637 @@
+<script lang="ts">
+  import { untrack } from "svelte";
+  import { ask } from "@tauri-apps/plugin-dialog";
+  import { api, errorMessage } from "$lib/api";
+  import { fromDraft, idProblem, isDirty, newDraft, toDraft, type Draft } from "$lib/draft";
+  import {
+    ancestorsIfParent,
+    descendants,
+    displayName,
+    parentCandidates,
+    pathLabel,
+    referencingChildren,
+    type TreeModel,
+  } from "$lib/tree";
+  import type { Diagnostic, PurposeFields, PurposeNode, SaveError, Snapshot } from "$lib/types";
+  import DiagnosticList from "./DiagnosticList.svelte";
+
+  let {
+    root,
+    snap,
+    model,
+    node,
+    createParent = null,
+    onSaved,
+    onCancel,
+    onDeleted,
+    onCreateChild,
+    onDirtyChange,
+    onToast,
+    onReload,
+  }: {
+    root: string;
+    snap: Snapshot;
+    model: TreeModel;
+    /** 編集対象。`null` は新規作成。 */
+    node: PurposeNode | null;
+    createParent?: string | null;
+    onSaved: (id: string) => void;
+    onCancel: () => void;
+    onDeleted: () => void;
+    onCreateChild: (parent: string) => void;
+    onDirtyChange: (dirty: boolean) => void;
+    onToast: (msg: string) => void;
+    onReload: () => void;
+  } = $props();
+
+  // 編集を始めた時点のファイル内容。保存時の競合検知に使う。
+  let baseHash = $state<string | null>(untrack(() => node?.hash ?? null));
+  let baseFields = $state<PurposeFields | null>(untrack(() => node?.fields ?? null));
+  let draft = $state<Draft>(untrack(() => (node?.fields ? toDraft(node.fields) : newDraft(createParent))));
+  let externalChange = $state(false);
+  let saving = $state(false);
+  let saveDiagnostics = $state<Diagnostic[]>([]);
+  let saveMessage = $state<string | null>(null);
+  let snippet = $state<string | null>(null);
+
+  const isNew = $derived(node === null);
+  const editable = $derived(isNew || node?.fields != null);
+  const dirty = $derived(editable && (isNew ? hasInput(draft) : isDirty(draft, baseFields)));
+  $effect(() => onDirtyChange(dirty));
+
+  // 外部変更：自分の保存なら baseHash と一致するので何もしない。
+  $effect(() => {
+    const current = node;
+    if (!current || current.hash === untrack(() => baseHash)) return;
+    untrack(() => {
+      if (!isDirty(draft, baseFields) || !current.fields) {
+        reset(current);
+      } else {
+        externalChange = true;
+      }
+    });
+  });
+
+  function hasInput(d: Draft) {
+    return d.id !== "" || d.name !== "" || d.purpose !== "" || d.rationale !== "" || d.principles !== "";
+  }
+
+  function reset(n: PurposeNode) {
+    baseHash = n.hash;
+    baseFields = n.fields;
+    if (n.fields) draft = toDraft(n.fields);
+    externalChange = false;
+    saveDiagnostics = [];
+    saveMessage = null;
+  }
+
+  const candidates = $derived(parentCandidates(model, isNew ? null : (node?.id ?? null)));
+  const parentKnown = $derived(draft.parent === "" || candidates.some((c) => c.id === draft.parent));
+  const originalParent = $derived(isNew ? createParent ?? "" : (baseFields?.parent ?? ""));
+  const parentChanged = $derived(!isNew && draft.parent !== originalParent);
+  const previewAncestors = $derived(ancestorsIfParent(model, draft.parent === "" ? null : draft.parent));
+  const descendantIds = $derived(node ? descendants(model, node.id) : []);
+  const archiving = $derived(!isNew && baseFields?.status === "active" && draft.status === "archived");
+  const deleteBlockers = $derived(node ? referencingChildren(snap, node.id) : []);
+  const idError = $derived(isNew ? idProblem(draft.id.trim()) : null);
+  const idTaken = $derived(isNew && model.byId.has(draft.id.trim()));
+  const periodError = $derived(
+    draft.valid_from !== "" && draft.valid_until !== "" && draft.valid_from > draft.valid_until
+      ? "開始日が終了日より後になっています"
+      : null,
+  );
+  const requiredMissing = $derived(draft.name.trim() === "" || draft.purpose.trim() === "");
+  const canSave = $derived(editable && dirty && !saving && !idError && !idTaken && !periodError && !requiredMissing);
+
+  const effectiveLabel = {
+    active: "有効",
+    archived: "アーカイブ",
+    inherited_inactive: "親がアーカイブ",
+    unknown: "判定不可",
+  } as const;
+  const effectiveClass = {
+    active: "active",
+    archived: "archived",
+    inherited_inactive: "inherited",
+    unknown: "warning",
+  } as const;
+
+  async function save() {
+    if (!canSave) return;
+    let allowCommentLoss = false;
+    if (node?.has_comments) {
+      allowCommentLoss = await ask(
+        "このファイルにはYAMLコメントがあります。GUIで保存するとコメントは失われます。\n補足はコメントではなく「背景」に書くことをおすすめします。\n\n保存しますか？",
+        { title: "コメントが失われます", kind: "warning", okLabel: "保存する", cancelLabel: "やめる" },
+      );
+      if (!allowCommentLoss) return;
+    }
+    saving = true;
+    saveDiagnostics = [];
+    saveMessage = null;
+    const fields = fromDraft(draft);
+    try {
+      const out = await api.savePurpose(root, {
+        fields,
+        expected_hash: isNew ? null : baseHash,
+        allow_comment_loss: allowCommentLoss,
+      });
+      baseHash = out.hash;
+      baseFields = fields;
+      draft = toDraft(fields);
+      externalChange = false;
+      onToast(isNew ? "目的を作成しました" : "保存しました");
+      onSaved(out.id);
+    } catch (e) {
+      const err = e as SaveError;
+      switch (err?.kind) {
+        case "validation":
+          saveDiagnostics = err.diagnostics;
+          saveMessage = "入力内容に問題があるため保存していません。";
+          break;
+        case "conflict":
+          externalChange = true;
+          saveMessage = "編集中にファイルが外部で変更されたため、保存していません。";
+          break;
+        case "already_exists":
+          saveMessage = "同じIDの目的がすでにあります。別のIDにしてください。";
+          break;
+        case "not_editable":
+          saveDiagnostics = err.diagnostics;
+          saveMessage = "ファイルにエラーがあるため、GUIでは保存できません。";
+          break;
+        default:
+          saveMessage = `保存できませんでした: ${errorMessage(e)}`;
+      }
+    } finally {
+      saving = false;
+    }
+  }
+
+  function discard() {
+    if (isNew) {
+      onCancel();
+      return;
+    }
+    if (node) reset(node);
+  }
+
+  function reloadFromDisk() {
+    if (node) reset(node);
+    onReload();
+  }
+
+  async function remove() {
+    if (!node || deleteBlockers.length > 0) return;
+    const ok = await ask(
+      `「${displayName(node)}」（${node.id}）のファイルを削除します。\n\nこの目的を参照していた過去のセッションは参照先を失います。通常は削除ではなくアーカイブをおすすめします。\n\n削除しますか？`,
+      { title: "目的の削除", kind: "warning", okLabel: "削除する", cancelLabel: "やめる" },
+    );
+    if (!ok) return;
+    try {
+      await api.deletePurpose(root, node.id, baseHash ?? node.hash);
+      onToast("削除しました");
+      onDeleted();
+    } catch (e) {
+      const err = e as SaveError;
+      if (err?.kind === "conflict") {
+        saveMessage = "ファイルが外部で変更されたため、削除していません。再読み込みしてください。";
+      } else if (err?.kind === "has_children") {
+        saveMessage = `子目的があるため削除できません: ${err.children.join(", ")}`;
+      } else {
+        saveMessage = `削除できませんでした: ${errorMessage(e)}`;
+      }
+    }
+  }
+
+  async function copySnippet() {
+    if (!node) return;
+    const text = await api.claudeMdSnippet(root, node.id);
+    try {
+      await navigator.clipboard.writeText(text);
+      onToast("CLAUDE.md 向けの指示をコピーしました");
+    } catch {
+      snippet = text;
+    }
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+      e.preventDefault();
+      save();
+    }
+  }
+</script>
+
+<svelte:window onkeydown={onKeydown} />
+
+<div class="editor">
+  <section class="form">
+    <header>
+      <div class="title">
+        <h1>{isNew ? "新しい目的" : displayName(node ?? undefined)}</h1>
+        {#if node}
+          <span class="badge {effectiveClass[node.effective]}">{effectiveLabel[node.effective]}</span>
+        {/if}
+        {#if dirty}<span class="badge info">未保存</span>{/if}
+      </div>
+      {#if node}
+        <div class="actions">
+          <button onclick={copySnippet} title="選択中の目的を参照する指示を、CLAUDE.md に貼り付ける形でコピーします">CLAUDE.md 用にコピー</button>
+          <button onclick={() => onCreateChild(node.id)} disabled={!node.fields}>子目的を追加</button>
+          <button
+            class="danger"
+            onclick={remove}
+            disabled={deleteBlockers.length > 0}
+            title={deleteBlockers.length > 0 ? `子目的があるため削除できません（${deleteBlockers.join(", ")}）` : "ファイルを削除します"}
+          >削除</button>
+        </div>
+      {/if}
+    </header>
+
+    {#if node}
+      <p class="path mono muted" title={node.path}>{node.path}</p>
+    {/if}
+
+    {#if externalChange}
+      <div class="banner warning" role="alert">
+        <span>このファイルは外部で変更されました。編集中の内容はまだ保存されていません。</span>
+        <button onclick={reloadFromDisk}>外部の変更を読み込む（編集内容を破棄）</button>
+      </div>
+    {/if}
+
+    {#if saveMessage}
+      <div class="banner error" role="alert">
+        <span>{saveMessage}</span>
+      </div>
+    {/if}
+    <DiagnosticList items={saveDiagnostics} />
+
+    {#if !editable && node}
+      <div class="banner error">
+        <span>このファイルにはエラーがあるため、GUIでは編集できません。外部エディタで修正すると自動で反映されます。</span>
+      </div>
+      <DiagnosticList items={node.diagnostics} />
+    {:else}
+      <div class="fields">
+        <label class="field">
+          <span class="lbl">ID</span>
+          {#if isNew}
+            <input type="text" bind:value={draft.id} placeholder="例: job-matching" spellcheck="false" />
+            <span class="hint" class:err={draft.id !== "" && (idError || idTaken)}>
+              {#if draft.id !== "" && idError}{idError}
+              {:else if idTaken}同じIDの目的がすでにあります
+              {:else}小文字英数字とハイフン。作成後は変更できません（ファイル名 <code>{draft.id || "<ID>"}.yaml</code>）{/if}
+            </span>
+          {:else}
+            <input type="text" value={draft.id} readonly />
+            <span class="hint">IDは作成後に変更できません。目的そのものが変わる場合は新しい目的を作り、こちらをアーカイブします。</span>
+          {/if}
+        </label>
+
+        <label class="field">
+          <span class="lbl">表示名 <em>必須</em></span>
+          <input type="text" bind:value={draft.name} />
+        </label>
+
+        <label class="field">
+          <span class="lbl">目的 <em>必須</em></span>
+          <textarea bind:value={draft.purpose} rows="3" placeholder="この目的が実現したい状態。親の目的にどう貢献するか"></textarea>
+        </label>
+
+        <label class="field">
+          <span class="lbl">判断原則</span>
+          <textarea bind:value={draft.principles} rows="3" placeholder="1行に1つ"></textarea>
+          <span class="hint">1行に1つ。子目的からも参照されます。</span>
+        </label>
+
+        <label class="field">
+          <span class="lbl">背景</span>
+          <textarea bind:value={draft.rationale} rows="3" placeholder="任意。なぜこの目的を設定したか"></textarea>
+          <span class="hint">子目的には引き継がれません。会議記録・作業履歴・認証情報は書かないでください。</span>
+        </label>
+
+        <div class="row2">
+          <label class="field">
+            <span class="lbl">親目的</span>
+            <select bind:value={draft.parent}>
+              <option value="">（なし：ルート）</option>
+              {#if !parentKnown}
+                <option value={draft.parent}>{draft.parent}（見つかりません）</option>
+              {/if}
+              {#each candidates as c (c.id)}
+                <option value={c.id}>{pathLabel(model, c)}{c.effective !== "active" ? "（非アクティブ）" : ""}</option>
+              {/each}
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="lbl">状態</span>
+            <select bind:value={draft.status}>
+              <option value="active">active（有効）</option>
+              <option value="archived">archived（アーカイブ）</option>
+            </select>
+          </label>
+        </div>
+
+        {#if parentChanged}
+          <div class="banner info">
+            <span>
+              親を変更すると、継承元が右の「継承元」の内容に変わります。
+              {#if descendantIds.length > 0}子孫 {descendantIds.length} 件も一緒に移動します。{/if}
+            </span>
+          </div>
+        {/if}
+        {#if archiving && descendantIds.length > 0}
+          <div class="banner warning">
+            <span>アーカイブすると、子孫 {descendantIds.length} 件が実効的に非アクティブになります（子孫のファイルは変更しません）。継続する子目的は、先に別の親へ付け替えてください。</span>
+          </div>
+        {/if}
+
+        <fieldset class="dates">
+          <legend>期間（任意）</legend>
+          <label class="field">
+            <span class="lbl">有効開始日</span>
+            <input type="date" bind:value={draft.valid_from} />
+          </label>
+          <label class="field">
+            <span class="lbl">有効終了日</span>
+            <input type="date" bind:value={draft.valid_until} />
+          </label>
+          <label class="field">
+            <span class="lbl">見直し予定日</span>
+            <input type="date" bind:value={draft.review_at} />
+          </label>
+          <p class="hint" class:err={periodError}>
+            {periodError ?? "未設定は「期間未定」です。日付を過ぎても状態は自動では変わりません。"}
+          </p>
+        </fieldset>
+
+        {#if node && node.unknown_fields.length > 0}
+          <p class="hint">未知のフィールド（保存しても保持されます）: <code>{node.unknown_fields.join(", ")}</code></p>
+        {/if}
+
+        {#if node}
+          <DiagnosticList items={node.diagnostics} />
+        {/if}
+      </div>
+
+      <footer>
+        <button class="primary" onclick={save} disabled={!canSave}>{saving ? "保存中…" : isNew ? "作成" : "保存"}</button>
+        <button onclick={discard} disabled={!isNew && !dirty}>{isNew ? "キャンセル" : "変更を破棄"}</button>
+        <span class="muted kbd">Ctrl+S で保存</span>
+      </footer>
+    {/if}
+  </section>
+
+  <aside class="lineage">
+    <h2>継承元{parentChanged || isNew ? "（保存後）" : ""}</h2>
+    {#if editable}
+      {#if previewAncestors.length === 0}
+        <p class="muted">ルートの目的です。継承元はありません。</p>
+      {:else}
+        <ol>
+          {#each previewAncestors as aid (aid)}
+            {@const a = model.byId.get(aid)}
+            {#if a?.fields}
+              <li class:inactive={a.effective !== "active"}>
+                <div class="a-name">
+                  {a.fields.name}
+                  <span class="muted mono">{a.id}</span>
+                  {#if a.fields.status === "archived"}<span class="badge archived">アーカイブ</span>{/if}
+                </div>
+                <p class="a-purpose">{a.fields.purpose}</p>
+                {#if a.fields.principles && a.fields.principles.length > 0}
+                  <ul class="principles">
+                    {#each a.fields.principles as p, i (i)}<li>{p}</li>{/each}
+                  </ul>
+                {/if}
+              </li>
+            {/if}
+          {/each}
+        </ol>
+      {/if}
+    {/if}
+  </aside>
+</div>
+
+{#if snippet}
+  <div class="modal-backdrop" role="presentation" onclick={() => (snippet = null)}>
+    <div class="modal" role="dialog" aria-label="CLAUDE.md 用の指示" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === "Escape" && (snippet = null)}>
+      <p>クリップボードにコピーできませんでした。以下を選択してコピーしてください。</p>
+      <textarea readonly rows="14" value={snippet}></textarea>
+      <button onclick={() => (snippet = null)}>閉じる</button>
+    </div>
+  </div>
+{/if}
+
+<style>
+  .editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 340px);
+    gap: 24px;
+    align-items: start;
+    max-width: 1200px;
+  }
+  @media (max-width: 1100px) {
+    .editor {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .title {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .path {
+    margin: 4px 0 12px;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fields {
+    display: grid;
+    gap: 14px;
+    margin-top: 12px;
+  }
+  .field {
+    display: grid;
+    gap: 4px;
+  }
+  .lbl {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .lbl em {
+    font-style: normal;
+    font-weight: 400;
+    color: var(--text-3);
+    margin-left: 4px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--text-3);
+    margin: 0;
+  }
+  .hint.err {
+    color: var(--error);
+  }
+  .row2 {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 12px;
+  }
+  .dates {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 12px 12px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin: 0;
+  }
+  .dates legend {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+    padding: 0 4px;
+  }
+  .dates .hint {
+    grid-column: 1 / -1;
+  }
+  .banner {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    margin: 8px 0;
+  }
+  .banner.warning {
+    background: var(--warning-soft);
+    color: var(--warning);
+  }
+  .banner.error {
+    background: var(--error-soft);
+    color: var(--error);
+  }
+  .banner.info {
+    background: var(--info-soft);
+    color: var(--info);
+  }
+  footer {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .kbd {
+    font-size: 12px;
+    margin-left: auto;
+  }
+  .lineage {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    position: sticky;
+    top: 0;
+  }
+  .lineage h2 {
+    font-size: 13px;
+    margin: 0 0 8px;
+    color: var(--text-2);
+  }
+  .lineage ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0;
+  }
+  .lineage ol > li {
+    position: relative;
+    padding: 6px 0 10px 14px;
+    border-left: 2px solid var(--border);
+  }
+  .lineage ol > li::before {
+    content: "";
+    position: absolute;
+    left: -5px;
+    top: 12px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .lineage ol > li.inactive::before {
+    background: var(--archived);
+  }
+  .a-name {
+    font-weight: 600;
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .a-name .mono {
+    font-weight: 400;
+    font-size: 11px;
+  }
+  .a-purpose {
+    margin: 2px 0 4px;
+    color: var(--text-2);
+    font-size: 13px;
+  }
+  .principles {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 0.35);
+    display: grid;
+    place-items: center;
+    z-index: 20;
+  }
+  .modal {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px;
+    width: min(640px, 90vw);
+    display: grid;
+    gap: 10px;
+  }
+  .modal textarea {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+</style>

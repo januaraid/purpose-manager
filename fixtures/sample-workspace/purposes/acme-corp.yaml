@@ -1,0 +1,11 @@
+schema_version: 1
+id: acme-corp
+parent: null
+name: Acme Corp
+purpose: 働く人が自分の力を発揮できる社会をつくる。
+rationale: |
+  架空の企業のサンプルです。実在の組織とは関係ありません。
+principles:
+  - 長期的な信頼を短期の成果より優先する
+  - 迷ったら利用者にとって分かりやすい方を選ぶ
+status: active

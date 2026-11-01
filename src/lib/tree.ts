@@ -1,0 +1,109 @@
+import type { Diagnostic, PurposeNode, Severity, Snapshot } from "./types";
+
+export interface TreeModel {
+  byId: Map<string, PurposeNode>;
+  /** ルートまで辿れるルートノード。 */
+  roots: string[];
+  /** 編集はできるが、祖先を辿れないノード（親の欠落・循環・親のファイルのエラー）。 */
+  unresolved: string[];
+  /** ファイル単位のエラーで読み込めなかったノード。 */
+  broken: string[];
+}
+
+export function buildTree(snap: Snapshot): TreeModel {
+  const byId = new Map(snap.nodes.map((n) => [n.id, n]));
+  const roots: string[] = [];
+  const unresolved: string[] = [];
+  const broken: string[] = [];
+  for (const n of snap.nodes) {
+    if (!n.fields) broken.push(n.id);
+    else if (!n.resolved) unresolved.push(n.id);
+    else if (n.fields.parent === null) roots.push(n.id);
+  }
+  return { byId, roots, unresolved, broken };
+}
+
+/** アーカイブ済みを隠すとき、自身が archived のノードを除く（子孫は親ごと隠れる）。 */
+export function isVisible(node: PurposeNode, showArchived: boolean): boolean {
+  return showArchived || node.effective !== "archived";
+}
+
+export function visibleChildren(model: TreeModel, id: string, showArchived: boolean): string[] {
+  const node = model.byId.get(id);
+  if (!node) return [];
+  return node.children.filter((c) => {
+    const child = model.byId.get(c);
+    return child !== undefined && isVisible(child, showArchived);
+  });
+}
+
+/** 子孫のID（自身は含まない）。 */
+export function descendants(model: TreeModel, id: string): string[] {
+  const out: string[] = [];
+  const stack = [...(model.byId.get(id)?.children ?? [])];
+  const seen = new Set<string>();
+  while (stack.length > 0) {
+    const c = stack.pop()!;
+    if (seen.has(c)) continue;
+    seen.add(c);
+    out.push(c);
+    stack.push(...(model.byId.get(c)?.children ?? []));
+  }
+  return out;
+}
+
+/** ファイルに親として書かれている参照も含めた、子のID（削除できるかの判定に使う）。 */
+export function referencingChildren(snap: Snapshot, id: string): string[] {
+  return snap.nodes.filter((n) => n.id !== id && n.raw_parent === id).map((n) => n.id);
+}
+
+/**
+ * 親の候補。自身と子孫は循環になるため除く。ファイルにエラーがあるノードも除く。
+ * `id` が null のときは新規作成（全ノードが候補）。
+ */
+export function parentCandidates(model: TreeModel, id: string | null): PurposeNode[] {
+  const excluded = new Set(id ? [id, ...descendants(model, id)] : []);
+  return [...model.byId.values()]
+    .filter((n) => n.fields !== null && n.resolved && !excluded.has(n.id))
+    .sort((a, b) => pathLabel(model, a).localeCompare(pathLabel(model, b), "ja"));
+}
+
+/** ルートからの表示名の連なり（親の選択肢に使う）。 */
+export function pathLabel(model: TreeModel, node: PurposeNode): string {
+  return [...node.ancestors, node.id].map((a) => displayName(model.byId.get(a), a)).join(" › ");
+}
+
+/** 親を `newParent` にしたときの祖先（ルートから親まで）。 */
+export function ancestorsIfParent(model: TreeModel, newParent: string | null): string[] {
+  if (newParent === null) return [];
+  const p = model.byId.get(newParent);
+  if (!p) return [];
+  return [...p.ancestors, p.id];
+}
+
+export function displayName(node: PurposeNode | undefined, fallback = ""): string {
+  return node?.fields?.name ?? node?.raw_name ?? node?.id ?? fallback;
+}
+
+const rank: Record<Severity, number> = { error: 3, warning: 2, info: 1 };
+
+export function worstSeverity(diags: Diagnostic[]): Severity | null {
+  let worst: Severity | null = null;
+  for (const d of diags) {
+    if (worst === null || rank[d.severity] > rank[worst]) worst = d.severity;
+  }
+  return worst;
+}
+
+/** 端末のローカル日付（YYYY-MM-DD）。 */
+export function todayLocal(now = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function folderName(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}

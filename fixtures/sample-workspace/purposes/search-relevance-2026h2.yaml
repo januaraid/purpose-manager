@@ -1,0 +1,11 @@
+schema_version: 1
+id: search-relevance-2026h2
+parent: search-experience
+name: 検索結果の関連度改善（2026年下期）
+purpose: 検索結果の上位に、求職者の経験と希望に合う求人が並ぶ状態にする。
+principles:
+  - 改善は利用者の行動で確かめる
+status: active
+valid_from: 2026-10-01
+valid_until: 2027-03-31
+review_at: 2027-02-28

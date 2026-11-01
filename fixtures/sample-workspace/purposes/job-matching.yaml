@@ -1,0 +1,8 @@
+schema_version: 1
+id: job-matching
+parent: acme-jobs
+name: 求人マッチング
+purpose: 求職者の希望と求人の条件を正確に結びつけ、応募後のミスマッチを減らす。
+principles:
+  - 表示する求人の数より、合っている度合いを重視する
+status: active
