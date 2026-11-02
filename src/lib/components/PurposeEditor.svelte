@@ -469,10 +469,10 @@
 <style>
   .editor {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(240px, 340px);
+    /* 画面幅いっぱいに使う。継承元の欄も幅に応じて広げる */
+    grid-template-columns: minmax(0, 1fr) clamp(260px, 32%, 560px);
     gap: 24px;
     align-items: start;
-    max-width: 1200px;
   }
   @media (max-width: 1100px) {
     .editor {
