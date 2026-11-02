@@ -14,7 +14,7 @@
 
   // 表示の好み（端末ローカル。読めなくても既定値で動く）
   const PREFS_KEY = "purpose-manager.layout";
-  const SIDEBAR_MIN = 200;
+  const SIDEBAR_MIN = 220;
   const SIDEBAR_MAX = 640;
   function loadPrefs(): { width: number; open: boolean; view: "detail" | "overview" } {
     const d = { width: 300, open: true, view: "detail" as const };
@@ -357,7 +357,9 @@
         <label class="toggle"><input type="checkbox" bind:checked={showArchived} /> アーカイブを表示</label>
         <div class="tool-buttons">
           <button class="ghost small" onclick={() => startCreate(null)} title="ルートの目的を追加">＋ ルート</button>
-          <button class="ghost small" onclick={reload} title="ファイルを読み込み直す">再読み込み</button>
+          <button class="icon ghost" onclick={reload} title="再読み込み（ファイルを読み込み直す）" aria-label="再読み込み">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
         </div>
       </div>
       <form class="find" onsubmit={openById}>
@@ -601,15 +603,30 @@
   }
   .tools {
     display: flex;
-    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 2px 6px;
     align-items: center;
   }
   .tool-buttons {
     display: flex;
     gap: 2px;
+    align-items: center;
+    flex: none;
+    margin-left: auto;
+  }
+  .tool-buttons button {
+    white-space: nowrap;
+  }
+  .tool-buttons .small {
+    padding: 2px 6px;
+  }
+  .tool-buttons button.icon {
+    width: 24px;
+    height: 24px;
   }
   .toggle {
     display: flex;
+    white-space: nowrap;
     gap: 6px;
     align-items: center;
     font-size: 13px;
