@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SvelteSet } from "svelte/reactivity";
   import { canHaveChild, displayName, visibleChildren, worstSeverity, type TreeModel } from "$lib/tree";
+  import PendingRow from "./PendingRow.svelte";
   import TreeItem from "./TreeItem.svelte";
 
   let {
@@ -11,6 +12,7 @@
     selectedId,
     collapsed,
     onSelect,
+    pending = null,
     onAddChild,
     onContextMenu,
   }: {
@@ -21,6 +23,8 @@
     selectedId: string | null;
     collapsed: SvelteSet<string>;
     onSelect: (id: string) => void;
+    /** 新規作成中の目的（ここに追加されることを示す仮の行を出す）。 */
+    pending?: { parent: string | null; name: string } | null;
     onAddChild: (parent: string) => void;
     onContextMenu: (id: string, x: number, y: number) => void;
   } = $props();
@@ -28,6 +32,7 @@
   const node = $derived(model.byId.get(id));
   const kids = $derived(visibleChildren(model, id, showArchived));
   const isCollapsed = $derived(collapsed.has(id));
+  const pendingHere = $derived(pending?.parent === id);
   const severity = $derived(node ? worstSeverity(node.diagnostics.filter((d) => d.severity !== "info")) : null);
 
   function toggle(e: MouseEvent) {
@@ -77,11 +82,14 @@
         </button>
       {/if}
     </div>
-    {#if kids.length > 0 && !isCollapsed}
+    {#if (kids.length > 0 && !isCollapsed) || pendingHere}
       <ul role="group">
-        {#each kids as child (child)}
-          <TreeItem {model} id={child} depth={depth + 1} {showArchived} {selectedId} {collapsed} {onSelect} {onAddChild} {onContextMenu} />
+        {#each isCollapsed ? [] : kids as child (child)}
+          <TreeItem {model} id={child} depth={depth + 1} {showArchived} {selectedId} {collapsed} {onSelect} {pending} {onAddChild} {onContextMenu} />
         {/each}
+        {#if pendingHere && pending}
+          <PendingRow name={pending.name} depth={depth + 1} />
+        {/if}
       </ul>
     {/if}
   </li>

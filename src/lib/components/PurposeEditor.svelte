@@ -26,6 +26,7 @@
     onDeleted,
     onCreateChild,
     onDirtyChange,
+    onDraftChange,
     onToast,
     onReload,
   }: {
@@ -40,6 +41,8 @@
     onDeleted: () => void;
     onCreateChild: (parent: string) => void;
     onDirtyChange: (dirty: boolean) => void;
+    /** 新規作成中の親と表示名（ツリーに仮の行を出すため）。 */
+    onDraftChange?: (d: { parent: string | null; name: string }) => void;
     onToast: (msg: string) => void;
     onReload: () => void;
   } = $props();
@@ -69,6 +72,9 @@
   const editable = $derived(isNew || node?.fields != null);
   const dirty = $derived(editable && (isNew ? hasInput(draft) : isDirty(draft, baseFields)));
   $effect(() => onDirtyChange(dirty));
+  $effect(() => {
+    if (isNew) onDraftChange?.({ parent: draft.parent === "" ? null : draft.parent, name: draft.name });
+  });
 
   // 外部変更：自分の保存なら baseHash と一致するので何もしない。
   $effect(() => {

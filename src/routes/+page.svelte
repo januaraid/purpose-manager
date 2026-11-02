@@ -8,6 +8,7 @@
   import ContextMenu, { type MenuItem } from "$lib/components/ContextMenu.svelte";
   import DiagnosticList from "$lib/components/DiagnosticList.svelte";
   import PurposeEditor from "$lib/components/PurposeEditor.svelte";
+  import PendingRow from "$lib/components/PendingRow.svelte";
   import TreeItem from "$lib/components/TreeItem.svelte";
   import TreeOverview from "$lib/components/TreeOverview.svelte";
 
@@ -71,6 +72,19 @@
   let selectedId = $state<string | null>(null);
   /** 新規作成中なら親のID（ルートは null）。作成中でなければ undefined。 */
   let creating = $state<string | null | undefined>(undefined);
+  /** 作成中の目的の親と表示名（フォームの入力に追従する）。ツリーに仮の行を出す。 */
+  let pendingDraft = $state<{ parent: string | null; name: string } | null>(null);
+  const pending = $derived(creating !== undefined ? (pendingDraft ?? { parent: creating, name: "" }) : null);
+  $effect(() => {
+    if (creating === undefined) pendingDraft = null;
+  });
+  // 仮の行が見えるように、親とその祖先を展開する
+  $effect(() => {
+    const p = pending?.parent;
+    if (!p || !model) return;
+    const n = model.byId.get(p);
+    for (const a of [...(n?.ancestors ?? []), p]) if (collapsed.has(a)) collapsed.delete(a);
+  });
   let showArchived = $state(false);
   let showWsDiags = $state(false);
   let editorDirty = $state(false);
@@ -205,6 +219,7 @@
 
   async function startCreate(parent: string | null) {
     if (!(await confirmDiscard())) return;
+    pendingDraft = null;
     creating = parent;
     view = "detail";
   }
@@ -368,8 +383,11 @@
         {/if}
         <ul class="tree" role="tree">
           {#each visibleRoots as id (id)}
-            <TreeItem {model} {id} {showArchived} {selectedId} {collapsed} onSelect={select} onAddChild={startCreate} onContextMenu={openMenu} />
+            <TreeItem {model} {id} {showArchived} {selectedId} {collapsed} {pending} onSelect={select} onAddChild={startCreate} onContextMenu={openMenu} />
           {/each}
+          {#if pending && pending.parent === null}
+            <PendingRow name={pending.name} depth={0} />
+          {/if}
         </ul>
 
         {#if model.unresolved.length > 0}
@@ -450,6 +468,7 @@
             {onDeleted}
             onCreateChild={(p) => startCreate(p)}
             onDirtyChange={(d) => (editorDirty = d)}
+            onDraftChange={(d) => (pendingDraft = d)}
             onToast={showToast}
             onReload={reload}
           />
