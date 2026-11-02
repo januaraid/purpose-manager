@@ -83,6 +83,9 @@
     } else if (mod && (e.key === "-" || e.key === "_")) {
       e.preventDefault();
       setUiZoom(stepZoom(zoom, -1));
+    } else if (mod && !e.shiftKey && !e.altKey && (e.key === "1" || e.key === "2")) {
+      e.preventDefault();
+      view = e.key === "1" ? "detail" : "overview";
     } else if (mod && e.key === "0") {
       e.preventDefault();
       setUiZoom(1);
@@ -498,8 +501,8 @@
           <span class="ws-title" title={root}>{snap.name}</span>
         {/if}
         <div class="seg" role="tablist" aria-label="表示">
-          <button role="tab" aria-selected={view === "detail"} class:on={view === "detail"} onclick={() => (view = "detail")}>詳細</button>
-          <button role="tab" aria-selected={view === "overview"} class:on={view === "overview"} onclick={() => (view = "overview")}>全体図</button>
+          <button role="tab" aria-selected={view === "detail"} class:on={view === "detail"} onclick={() => (view = "detail")} title="詳細（Ctrl+1）">詳細</button>
+          <button role="tab" aria-selected={view === "overview"} class:on={view === "overview"} onclick={() => (view = "overview")} title="全体図（Ctrl+2）">全体図</button>
         </div>
       </div>
     {/if}
@@ -519,11 +522,14 @@
           <button class="danger" onclick={() => root && removeWorkspace(root)}>一覧から外す</button>
         </div>
       </div>
-    {:else if snap && model && view === "overview"}
-      <div class="overview-wrap">
-        <TreeOverview {model} roots={visibleRoots} {showArchived} {selectedId} onOpen={openFromOverview} onAddChild={startCreate} onContextMenu={openMenu} />
-      </div>
     {:else if snap && model}
+      {#if view === "overview"}
+        <div class="overview-wrap">
+          <TreeOverview {model} roots={visibleRoots} {showArchived} {selectedId} onOpen={openFromOverview} onAddChild={startCreate} onContextMenu={openMenu} />
+        </div>
+      {/if}
+      <!-- 全体図に切り替えても編集中の内容を失わないよう、詳細は隠すだけにする -->
+      <div class="detail" hidden={view === "overview"}>
       {#key editorKey}
         {#if creating !== undefined || selected}
           <PurposeEditor
@@ -555,6 +561,7 @@
           </div>
         {/if}
       {/key}
+      </div>
     {/if}
   </main>
 

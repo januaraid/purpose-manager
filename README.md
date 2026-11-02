@@ -41,6 +41,7 @@ status: active         # active / archived
 |---|---|
 | Ctrl+S | 保存 |
 | Ctrl+B | サイドパネルの開閉 |
+| Ctrl+1 / Ctrl+2 | 詳細／全体図に切り替える |
 | Ctrl+＋ / Ctrl+− / Ctrl+0 | 表示倍率を上げる／下げる／100%に戻す（80〜200%。端末ごとに保存） |
 
 macOSでは Ctrl の代わりに Cmd を使います。
