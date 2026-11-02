@@ -210,7 +210,7 @@ purpose-manager/
 - [x] スキーマ／親子関係／保存処理のテストを最初に書く
 - [ ] Windowsで起動し実機で動作確認（済）、macOSで早期スモークテスト（CIでのビルドとテストは成功。実機での起動は未）
 - [x] GitHub Publicを作成し、会社データをコミットしない仕組みを確認（2026-11-02 公開。`.gitignore` の `/workspaces`、コミットの作者はGitHubのnoreplyアドレス）
-- [x] PRテストとタグReleaseのCIを構築（`.github/workflows`。WindowsとmacOSでのテストとアプリのビルドが成功。タグReleaseは未実行）
+- [x] PRテストとタグReleaseのCIを構築（`.github/workflows`。WindowsとmacOSでのテストとアプリのビルドが成功。v0.1.0 をタグReleaseで作成し 2026-11-03 に公開）
 - [ ] 職場Macの導入ポリシーを確認
 
 ---
