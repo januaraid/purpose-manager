@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
-  import { fromDraft, idProblem, isDirty, newDraft, toDraft, type Draft } from "$lib/draft";
+  import { fromDraft, idProblem, isDirty, newDraft, randomSuffix, suggestId, toDraft, type Draft } from "$lib/draft";
   import {
     ancestorsIfParent,
     descendants,
@@ -55,6 +55,17 @@
   let snippet = $state<string | null>(null);
 
   const isNew = $derived(node === null);
+
+  // 新規作成時のID自動生成。利用者がIDを直接入力したら、以後は上書きしない。
+  let idTouched = $state(false);
+  const idSuffix = randomSuffix();
+  $effect(() => {
+    if (!isNew || idTouched) return;
+    const parent = draft.parent === "" ? null : draft.parent;
+    const name = draft.name;
+    const existing = new Set(model.byId.keys());
+    draft.id = name.trim() === "" ? "" : suggestId(name, parent, existing, idSuffix);
+  });
   const editable = $derived(isNew || node?.fields != null);
   const dirty = $derived(editable && (isNew ? hasInput(draft) : isDirty(draft, baseFields)));
   $effect(() => onDirtyChange(dirty));
@@ -275,23 +286,40 @@
     {:else}
       <div class="fields">
         <label class="field">
-          <span class="lbl">ID</span>
-          {#if isNew}
-            <input type="text" bind:value={draft.id} placeholder="例: job-matching" spellcheck="false" />
-            <span class="hint" class:err={draft.id !== "" && (idError || idTaken)}>
-              {#if draft.id !== "" && idError}{idError}
-              {:else if idTaken}同じIDの目的がすでにあります
-              {:else}小文字英数字とハイフン。作成後は変更できません（ファイル名 <code>{draft.id || "<ID>"}.yaml</code>）{/if}
-            </span>
-          {:else}
-            <input type="text" value={draft.id} readonly />
-            <span class="hint">IDは作成後に変更できません。目的そのものが変わる場合は新しい目的を作り、こちらをアーカイブします。</span>
-          {/if}
+          <span class="lbl">表示名 <em>必須</em></span>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input type="text" bind:value={draft.name} autofocus={isNew} />
         </label>
 
         <label class="field">
-          <span class="lbl">表示名 <em>必須</em></span>
-          <input type="text" bind:value={draft.name} />
+          <span class="lbl">
+            ID
+            {#if isNew}
+              {#if idTouched}
+                <button type="button" class="link" onclick={() => (idTouched = false)}>自動生成に戻す</button>
+              {:else}
+                <em>表示名から自動生成</em>
+              {/if}
+            {/if}
+          </span>
+          {#if isNew}
+            <input
+              type="text"
+              bind:value={draft.id}
+              oninput={() => (idTouched = draft.id !== "")}
+              placeholder="表示名を入力すると自動で入ります"
+              spellcheck="false"
+              class="mono"
+            />
+            <span class="hint" class:err={draft.id !== "" && (idError || idTaken)}>
+              {#if draft.id !== "" && idError}{idError}
+              {:else if idTaken}同じIDの目的がすでにあります
+              {:else}小文字英数字とハイフン。直接編集もできます。作成後は変更できません（ファイル名 <code>{draft.id || "<ID>"}.yaml</code>）{/if}
+            </span>
+          {:else}
+            <input type="text" value={draft.id} readonly class="mono" />
+            <span class="hint">IDは作成後に変更できません。目的そのものが変わる場合は新しい目的を作り、こちらをアーカイブします。</span>
+          {/if}
         </label>
 
         <label class="field">
@@ -487,6 +515,16 @@
     font-weight: 400;
     color: var(--text-3);
     margin-left: 4px;
+  }
+  button.link {
+    border: none;
+    background: none;
+    padding: 0;
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--accent);
+    text-decoration: underline;
   }
   .hint {
     font-size: 12px;

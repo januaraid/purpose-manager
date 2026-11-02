@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromDraft, idProblem, isDirty, newDraft, toDraft } from "./draft";
+import { fromDraft, idProblem, isDirty, newDraft, randomSuffix, suggestId, toDraft } from "./draft";
 import {
   ancestorsIfParent,
   buildTree,
@@ -173,5 +173,40 @@ describe("layoutTree", () => {
   it("separates multiple roots", () => {
     const l = layoutTree(model, ["a", "old"], true);
     expect(l.nodes.find((n) => n.id === "old1")!.row).toBe(1.5);
+  });
+});
+
+describe("suggestId", () => {
+  const none = new Set<string>();
+
+  it("slugifies latin names", () => {
+    expect(suggestId("Acme Jobs", null, none, "k3f9")).toBe("acme-jobs");
+    expect(suggestId("  Ｓｅａｒｃｈ　ＵＸ 2.0!! ", "x", none, "k3f9")).toBe("search-ux-2-0");
+  });
+
+  it("falls back to parent + digits + suffix for Japanese names", () => {
+    expect(suggestId("検索結果の関連度改善（2026年下期）", "search-experience", none, "k3f9")).toBe("search-experience-2026-k3f9");
+    expect(suggestId("検索体験", "job-matching", none, "k3f9")).toBe("job-matching-k3f9");
+    expect(suggestId("会社", null, none, "k3f9")).toBe("purpose-k3f9");
+    expect(suggestId("", null, none, "k3f9")).toBe("purpose-k3f9");
+  });
+
+  it("avoids existing ids and reserved names", () => {
+    expect(suggestId("Acme Jobs", null, new Set(["acme-jobs", "acme-jobs-2"]), "k3f9")).toBe("acme-jobs-3");
+    expect(suggestId("CON", null, none, "k3f9")).toBe("con-k3f9");
+  });
+
+  it("stays within 64 chars and valid", () => {
+    const long = suggestId("a".repeat(100), null, none, "k3f9");
+    expect(long.length).toBeLessThanOrEqual(64);
+    const jp = suggestId("目的", "p".repeat(64), none, "k3f9");
+    expect(jp.length).toBeLessThanOrEqual(64);
+    expect(idProblem(jp)).toBeNull();
+    expect(idProblem(suggestId("a--b__c", null, none, "k3f9"))).toBeNull();
+  });
+
+  it("generates suffixes from the safe alphabet", () => {
+    expect(randomSuffix(4, () => 0)).toBe("aaaa");
+    expect(randomSuffix(6)).toMatch(/^[a-km-np-z2-9]{6}$/);
   });
 });

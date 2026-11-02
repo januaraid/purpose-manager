@@ -83,3 +83,50 @@ export function idProblem(id: string): string | null {
   if (reserved.has(id)) return "Windowsの予約名のため使えません";
   return null;
 }
+
+const ID_MAX = 64;
+
+/** IDの末尾に付けるランダムな文字列（新規作成を始めたときに1回だけ作る）。 */
+export function randomSuffix(len = 4, rand: () => number = Math.random): string {
+  const chars = "abcdefghijkmnpqrstuvwxyz23456789"; // 紛らわしい l / o / 0 / 1 を除く
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[Math.floor(rand() * chars.length)];
+  return out;
+}
+
+function slugify(s: string): string {
+  return s
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function clip(s: string, max: number): string {
+  return s.slice(0, max).replace(/-+$/g, "");
+}
+
+/**
+ * 表示名からIDの候補を作る。
+ * - 英字を3文字以上含む表示名は、そのままスラッグにする（例: "Acme Jobs" → "acme-jobs"）。
+ * - それ以外（日本語中心）は、親のID＋表示名中の英数字＋ランダムな文字列にする。
+ * - 既存のIDと重なる場合は "-2" "-3" … を付ける。
+ */
+export function suggestId(name: string, parent: string | null, existing: Set<string>, suffix: string): string {
+  const slug = slugify(name);
+  const meaningful = (slug.match(/[a-z]/g) ?? []).length >= 3;
+  let base: string;
+  if (meaningful) {
+    base = clip(slug, ID_MAX);
+  } else {
+    const tail = [clip(slug, 24), suffix].filter(Boolean).join("-");
+    const head = parent ?? "purpose";
+    base = `${clip(head, ID_MAX - tail.length - 1)}-${tail}`;
+  }
+  if (idProblem(base) !== null) base = `${clip(base, ID_MAX - suffix.length - 1)}-${suffix}`;
+  if (!existing.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const cand = `${clip(base, ID_MAX - String(n).length - 1)}-${n}`;
+    if (!existing.has(cand)) return cand;
+  }
+}
