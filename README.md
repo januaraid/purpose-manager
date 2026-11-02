@@ -69,3 +69,7 @@ cargo run -p purpose-core --example validate -- ../fixtures/sample-workspace
 | `fixtures/` | 架空のサンプルWorkspace |
 
 **実在の組織の目的データ、社内パス、認証情報はコミットしないでください。** 実データはこのリポジトリの外に置いてください（`/workspaces` は誤コミット防止のため ignore しています）。
+
+## ライセンス
+
+[MIT](LICENSE)
