@@ -107,3 +107,54 @@ export function folderName(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? path;
 }
+
+export interface LayoutNode {
+  id: string;
+  depth: number;
+  /** 行の位置（葉が1ずつ進む。親は子の中央）。 */
+  row: number;
+}
+
+export interface Layout {
+  nodes: LayoutNode[];
+  edges: { from: string; to: string }[];
+  depths: number;
+  rows: number;
+}
+
+/**
+ * 全体図のレイアウト（左から右へ深くなる）。座標は「深さ」と「行」の単位で返す。
+ * 葉を上から順に並べ、親は子の上下中央に置く。ルートどうしの間は半行あける。
+ */
+export function layoutTree(model: TreeModel, roots: string[], showArchived: boolean): Layout {
+  const nodes: LayoutNode[] = [];
+  const edges: { from: string; to: string }[] = [];
+  let next = 0;
+  let maxDepth = -1;
+  const seen = new Set<string>();
+
+  const place = (id: string, depth: number): number => {
+    seen.add(id);
+    maxDepth = Math.max(maxDepth, depth);
+    const kids = visibleChildren(model, id, showArchived).filter((k) => !seen.has(k));
+    let row: number;
+    if (kids.length === 0) {
+      row = next;
+      next += 1;
+    } else {
+      const rows = kids.map((k) => {
+        edges.push({ from: id, to: k });
+        return place(k, depth + 1);
+      });
+      row = (rows[0] + rows[rows.length - 1]) / 2;
+    }
+    nodes.push({ id, depth, row });
+    return row;
+  };
+
+  roots.forEach((r, i) => {
+    if (i > 0) next += 0.5;
+    place(r, 0);
+  });
+  return { nodes, edges, depths: maxDepth + 1, rows: next };
+}

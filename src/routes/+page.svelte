@@ -8,6 +8,60 @@
   import DiagnosticList from "$lib/components/DiagnosticList.svelte";
   import PurposeEditor from "$lib/components/PurposeEditor.svelte";
   import TreeItem from "$lib/components/TreeItem.svelte";
+  import TreeOverview from "$lib/components/TreeOverview.svelte";
+
+  // 表示の好み（端末ローカル。読めなくても既定値で動く）
+  const PREFS_KEY = "purpose-manager.layout";
+  const SIDEBAR_MIN = 200;
+  const SIDEBAR_MAX = 640;
+  function loadPrefs(): { width: number; open: boolean; view: "detail" | "overview" } {
+    const d = { width: 300, open: true, view: "detail" as const };
+    try {
+      const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}");
+      return {
+        width: typeof p.width === "number" ? Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, p.width)) : d.width,
+        open: typeof p.open === "boolean" ? p.open : d.open,
+        view: p.view === "overview" ? "overview" : d.view,
+      };
+    } catch {
+      return d;
+    }
+  }
+  const prefs = loadPrefs();
+  let sidebarWidth = $state(prefs.width);
+  let sidebarOpen = $state(prefs.open);
+  let view = $state<"detail" | "overview">(prefs.view);
+  $effect(() => {
+    const v = { width: sidebarWidth, open: sidebarOpen, view };
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(v));
+    } catch {
+      /* 保存できなくても動作に影響しない */
+    }
+  });
+
+  let resizing = $state<{ x: number; width: number } | null>(null);
+  function startResize(e: PointerEvent) {
+    resizing = { x: e.clientX, width: sidebarWidth };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onResize(e: PointerEvent) {
+    if (!resizing) return;
+    sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, resizing.width + e.clientX - resizing.x));
+  }
+  function endResize() {
+    resizing = null;
+  }
+  function resizeByKey(e: KeyboardEvent) {
+    if (e.key === "ArrowLeft") sidebarWidth = Math.max(SIDEBAR_MIN, sidebarWidth - 20);
+    if (e.key === "ArrowRight") sidebarWidth = Math.min(SIDEBAR_MAX, sidebarWidth + 20);
+  }
+  function onGlobalKey(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      sidebarOpen = !sidebarOpen;
+    }
+  }
 
   let settings = $state<Settings>({ workspaces: [], last: null });
   let root = $state<string | null>(null);
@@ -138,9 +192,20 @@
     selectedId = id;
   }
 
+  /** 全体図から開く：選択して詳細表示へ切り替える。 */
+  async function openFromOverview(id: string) {
+    if (id !== selectedId || creating !== undefined) {
+      if (!(await confirmDiscard())) return;
+      creating = undefined;
+      selectedId = id;
+    }
+    view = "detail";
+  }
+
   async function startCreate(parent: string | null) {
     if (!(await confirmDiscard())) return;
     creating = parent;
+    view = "detail";
   }
 
   async function onSaved(id: string) {
@@ -184,8 +249,30 @@
   });
 </script>
 
-<div class="app">
+<svelte:window onkeydown={onGlobalKey} />
+
+<div class="app" style:grid-template-columns={sidebarOpen ? `${sidebarWidth}px minmax(0, 1fr)` : "minmax(0, 1fr)"} class:resizing={resizing !== null}>
+  {#if sidebarOpen}
   <nav class="sidebar">
+    <!-- フォーカスできる分割バー（WAI-ARIA window splitter） -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+    <div
+      class="resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="サイドパネルの幅"
+      aria-valuenow={sidebarWidth}
+      aria-valuemin={SIDEBAR_MIN}
+      aria-valuemax={SIDEBAR_MAX}
+      tabindex="0"
+      onpointerdown={startResize}
+      onpointermove={onResize}
+      onpointerup={endResize}
+      onpointercancel={endResize}
+      onkeydown={resizeByKey}
+      ondblclick={() => (sidebarWidth = 300)}
+      title="ドラッグで幅を変更（ダブルクリックで元に戻す）"
+    ></div>
     <div class="ws">
       <select
         value={root ?? ""}
@@ -201,11 +288,13 @@
           <option value={w} title={w}>{root === w && snap ? snap.name : folderName(w)}</option>
         {/each}
       </select>
-      <button onclick={addWorkspace} title="フォルダを選んでWorkspaceを追加">追加</button>
+      <button class="icon" onclick={addWorkspace} title="フォルダを選んでWorkspaceを追加" aria-label="Workspaceを追加">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" fill="none" /></svg>
+      </button>
+      <button class="icon" onclick={() => (sidebarOpen = false)} title="サイドパネルを閉じる（Ctrl+B）" aria-label="サイドパネルを閉じる">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.8" fill="none" /></svg>
+      </button>
     </div>
-    {#if root}
-      <p class="ws-path mono muted" title={root}>{root}</p>
-    {/if}
 
     {#if snap && model}
       <div class="tools">
@@ -263,8 +352,23 @@
       </div>
     {/if}
   </nav>
+  {/if}
 
-  <main>
+  <main class:overview-mode={view === "overview" && !!snap}>
+    {#if root && snap}
+      <div class="mainbar">
+        {#if !sidebarOpen}
+          <button class="icon" onclick={() => (sidebarOpen = true)} title="サイドパネルを開く（Ctrl+B）" aria-label="サイドパネルを開く">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" fill="none" /></svg>
+          </button>
+          <span class="ws-title" title={root}>{snap.name}</span>
+        {/if}
+        <div class="seg" role="tablist" aria-label="表示">
+          <button role="tab" aria-selected={view === "detail"} class:on={view === "detail"} onclick={() => (view = "detail")}>詳細</button>
+          <button role="tab" aria-selected={view === "overview"} class:on={view === "overview"} onclick={() => (view = "overview")}>全体図</button>
+        </div>
+      </div>
+    {/if}
     {#if !root}
       <div class="welcome">
         <h1>Purpose Manager</h1>
@@ -280,6 +384,10 @@
           <button onclick={reload}>再試行</button>
           <button class="danger" onclick={() => root && removeWorkspace(root)}>一覧から外す</button>
         </div>
+      </div>
+    {:else if snap && model && view === "overview"}
+      <div class="overview-wrap">
+        <TreeOverview {model} roots={visibleRoots} {showArchived} {selectedId} onOpen={openFromOverview} />
       </div>
     {:else if snap && model}
       {#key editorKey}
@@ -325,28 +433,103 @@
     grid-template-columns: 300px minmax(0, 1fr);
     height: 100vh;
   }
+  .app.resizing {
+    cursor: col-resize;
+    user-select: none;
+  }
   .sidebar {
+    position: relative;
     border-right: 1px solid var(--border);
     background: var(--surface);
     display: flex;
     flex-direction: column;
     min-height: 0;
-    padding: 12px 10px 0;
+    min-width: 0;
+    padding: 10px 10px 0;
     gap: 8px;
+  }
+  .resizer {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 5;
+  }
+  .resizer:hover,
+  .resizer:focus-visible,
+  .app.resizing .resizer {
+    background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+    outline: none;
   }
   .ws {
     display: flex;
-    gap: 6px;
+    gap: 4px;
+    align-items: center;
   }
   .ws select {
     font-weight: 600;
+    font-size: 13px;
+    padding: 3px 6px;
+    min-width: 0;
+    flex: 1;
   }
-  .ws-path {
-    margin: -4px 2px 0;
-    font-size: 11px;
+  button.icon {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    color: var(--text-2);
+  }
+  .mainbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .ws-title {
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
+  }
+  .seg {
+    margin-left: auto;
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    flex: none;
+  }
+  .seg button {
+    border: none;
+    border-radius: 0;
+    padding: 3px 14px;
+    font-size: 13px;
+    background: var(--surface);
+    color: var(--text-2);
+  }
+  .seg button + button {
+    border-left: 1px solid var(--border);
+  }
+  .seg button.on {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  main.overview-mode {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-bottom: 16px;
+  }
+  .overview-wrap {
+    flex: 1;
+    min-height: 0;
   }
   .tools {
     display: flex;

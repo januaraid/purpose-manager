@@ -4,6 +4,7 @@ import {
   ancestorsIfParent,
   buildTree,
   descendants,
+  layoutTree,
   folderName,
   parentCandidates,
   referencingChildren,
@@ -146,5 +147,31 @@ describe("draft", () => {
     for (const bad of ["", "Abc", "a_b", "-a", "a--b", "con", "a".repeat(65)]) {
       expect(idProblem(bad)).not.toBeNull();
     }
+  });
+});
+
+describe("layoutTree", () => {
+  const model = buildTree(snap);
+
+  it("centers parents over children", () => {
+    const l = layoutTree(model, model.roots, true);
+    const at = (id: string) => l.nodes.find((n) => n.id === id)!;
+    expect(at("a1")).toMatchObject({ depth: 2, row: 0 });
+    expect(at("old1")).toMatchObject({ depth: 2, row: 1 });
+    expect(at("a").row).toBe(0);
+    expect(at("root")).toMatchObject({ depth: 0, row: 0.5 });
+    expect(l.depths).toBe(3);
+    expect(l.rows).toBe(2);
+    expect(l.edges).toContainEqual({ from: "root", to: "old" });
+  });
+
+  it("hides archived subtrees", () => {
+    const l = layoutTree(model, model.roots, false);
+    expect(l.nodes.map((n) => n.id).sort()).toEqual(["a", "a1", "root"]);
+  });
+
+  it("separates multiple roots", () => {
+    const l = layoutTree(model, ["a", "old"], true);
+    expect(l.nodes.find((n) => n.id === "old1")!.row).toBe(1.5);
   });
 });
