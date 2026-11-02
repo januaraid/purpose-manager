@@ -5,6 +5,7 @@ import {
   buildTree,
   canHaveChild,
   descendants,
+  treeIndent,
   layoutTree,
   folderName,
   parentCandidates,
@@ -156,6 +157,15 @@ describe("draft", () => {
     for (const bad of ["", "Abc", "a_b", "-a", "a--b", "con", "a".repeat(65)]) {
       expect(idProblem(bad)).not.toBeNull();
     }
+  });
+});
+
+describe("treeIndent", () => {
+  it("narrows the step for deeper levels", () => {
+    expect(treeIndent(0)).toBe(8);
+    expect(treeIndent(3)).toBe(56);
+    expect(treeIndent(6)).toBe(86);
+    expect(treeIndent(10)).toBe(110);
   });
 });
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SvelteSet } from "svelte/reactivity";
-  import { canHaveChild, displayName, visibleChildren, worstSeverity, type TreeModel } from "$lib/tree";
+  import { canHaveChild, displayName, pathLabel, treeIndent, visibleChildren, worstSeverity, type TreeModel } from "$lib/tree";
   import PendingRow from "./PendingRow.svelte";
   import TreeItem from "./TreeItem.svelte";
 
@@ -49,7 +49,7 @@
       class:selected={selectedId === id}
       class:archived={node.effective === "archived"}
       class:inherited={node.effective === "inherited_inactive"}
-      style:padding-left="{8 + depth * 16}px"
+      style:padding-left="min({treeIndent(depth)}px, calc(100% - 140px))"
       oncontextmenu={(e) => {
         e.preventDefault();
         onContextMenu(id, e.clientX, e.clientY);
@@ -65,7 +65,7 @@
       {:else}
         <span class="chevron-space"></span>
       {/if}
-      <button class="label ghost" onclick={() => onSelect(id)} title={node.path}>
+      <button class="label ghost" onclick={() => onSelect(id)} title={pathLabel(model, node)}>
         <span class="name">{displayName(node)}</span>
         {#if node.effective === "archived"}<span class="badge archived">アーカイブ</span>{/if}
         {#if node.effective === "inherited_inactive"}<span class="badge inherited">親がアーカイブ</span>{/if}

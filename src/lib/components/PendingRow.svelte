@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { treeIndent } from "$lib/tree";
   let { name, depth }: { name: string; depth: number } = $props();
 
   let el = $state<HTMLLIElement>();
@@ -9,7 +10,7 @@
 
 <!-- 新規作成中の目的が、保存後にツリーのどこへ入るかを示す仮の行 -->
 <li bind:this={el} class="pending" role="treeitem" aria-selected="true" aria-label="作成中の目的">
-  <div class="row" style:margin-left="{8 + depth * 16 + 22}px">
+  <div class="row" style:margin-left="min({treeIndent(depth) + 22}px, calc(100% - 118px))">
     <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" fill="none" /></svg>
     <span class="name" class:empty={name.trim() === ""}>{name.trim() === "" ? "新しい目的" : name}</span>
     <span class="tag">作成中</span>

@@ -68,6 +68,16 @@ export function parentCandidates(model: TreeModel, id: string | null): PurposeNo
     .sort((a, b) => pathLabel(model, a).localeCompare(pathLabel(model, b), "ja"));
 }
 
+/**
+ * サイドパネルのツリーの字下げ（px）。深い階層ほど1段の幅を狭くし、
+ * 階層を重ねても名前を表示する幅が残るようにする（さらに CSS で上限を設ける）。
+ */
+export function treeIndent(depth: number): number {
+  let px = 8;
+  for (let d = 1; d <= depth; d++) px += d <= 3 ? 16 : d <= 6 ? 10 : 6;
+  return px;
+}
+
 /** 子目的の親にできるか（親の選択肢に出るものと同じ条件）。 */
 export function canHaveChild(node: PurposeNode | undefined): boolean {
   return !!node && node.fields !== null && node.resolved;
