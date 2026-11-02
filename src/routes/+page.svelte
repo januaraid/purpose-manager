@@ -11,6 +11,7 @@
   import PurposeEditor from "$lib/components/PurposeEditor.svelte";
   import PendingRow from "$lib/components/PendingRow.svelte";
   import TreeItem from "$lib/components/TreeItem.svelte";
+  import TreeMinimap from "$lib/components/TreeMinimap.svelte";
   import TreeOverview from "$lib/components/TreeOverview.svelte";
 
   // 表示の好み（端末ローカル。読めなくても既定値で動く）
@@ -539,6 +540,7 @@
             node={creating !== undefined ? null : selected}
             createParent={creating ?? null}
             {showArchived}
+            {map}
             {onSaved}
             onCancel={() => {
               creating = undefined;
@@ -564,6 +566,19 @@
       </div>
     {/if}
   </main>
+
+  {#snippet map()}
+    {#if model}
+      <TreeMinimap
+        {model}
+        roots={visibleRoots}
+        {showArchived}
+        currentId={selectedId}
+        pendingParent={pending ? pending.parent : undefined}
+        onOpen={select}
+      />
+    {/if}
+  {/snippet}
 
   {#if menu}
     <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => (menu = null)} />

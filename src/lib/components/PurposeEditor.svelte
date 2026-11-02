@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
   import { fromDraft, idProblem, isDirty, newDraft, randomSuffix, suggestId, toDraft, type Draft } from "$lib/draft";
@@ -22,6 +22,7 @@
     node,
     createParent = null,
     showArchived = false,
+    map,
     onSaved,
     onCancel,
     onDeleted,
@@ -39,6 +40,8 @@
     createParent?: string | null;
     /** false のとき、親の選択肢から非アクティブな目的を外す（現在の親は残す）。 */
     showArchived?: boolean;
+    /** 右の欄の上部に出す縮小図。 */
+    map?: Snippet;
     onSaved: (id: string) => void;
     onCancel: () => void;
     onDeleted: () => void;
@@ -425,6 +428,8 @@
     {/if}
   </section>
 
+  <div class="side">
+  {@render map?.()}
   <aside class="lineage">
     <h2>継承元{parentChanged || isNew ? "（保存後）" : ""}</h2>
     {#if editable}
@@ -454,6 +459,7 @@
       {/if}
     {/if}
   </aside>
+  </div>
 </div>
 
 {#if snippet}
@@ -605,13 +611,21 @@
     font-size: 12px;
     margin-left: auto;
   }
+  .side {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    max-height: calc(100vh - 80px);
+    overflow: auto;
+  }
   .lineage {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 12px 14px;
-    position: sticky;
-    top: 0;
   }
   .lineage h2 {
     font-size: 13px;
