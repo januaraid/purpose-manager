@@ -3,7 +3,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
-  import { buildTree, canHaveChild, displayName, folderName, todayLocal, worstSeverity } from "$lib/tree";
+  import { buildTree, canHaveChild, descendants, displayName, folderName, todayLocal, worstSeverity } from "$lib/tree";
   import type { LoadFailure, Settings, Snapshot } from "$lib/types";
   import ContextMenu, { type MenuItem } from "$lib/components/ContextMenu.svelte";
   import DiagnosticList from "$lib/components/DiagnosticList.svelte";
@@ -94,9 +94,34 @@
 
   const model = $derived(snap ? buildTree(snap) : null);
   const selected = $derived(model && selectedId ? (model.byId.get(selectedId) ?? null) : null);
+  /** ツリーをこの目的から下だけに絞る（null は全体）。 */
+  let focusId = $state<string | null>(null);
+  const focusNode = $derived(model && focusId ? (model.byId.get(focusId) ?? null) : null);
+  const focusSet = $derived(model && focusNode ? new Set([focusNode.id, ...descendants(model, focusNode.id)]) : null);
   const visibleRoots = $derived(
-    model ? model.roots.filter((id) => showArchived || model.byId.get(id)?.effective !== "archived") : [],
+    !model
+      ? []
+      : focusNode
+        ? [focusNode.id]
+        : model.roots.filter((id) => showArchived || model.byId.get(id)?.effective !== "archived"),
   );
+  // 絞り込みの外の目的を開いたり、外に目的を作り始めたら、全体表示に戻す
+  $effect(() => {
+    if (!focusId) return;
+    if (model && !model.byId.has(focusId)) {
+      focusId = null;
+      return;
+    }
+    if (!focusSet) return;
+    const outside = (id: string | null) => id === null || !focusSet.has(id);
+    if ((selectedId && creating === undefined && outside(selectedId)) || (pending && outside(pending.parent))) {
+      focusId = null;
+    }
+  });
+  function focusOn(id: string | null) {
+    focusId = id;
+    if (id) collapsed.delete(id);
+  }
   const wsSeverity = $derived(snap ? worstSeverity(snap.diagnostics) : null);
   const errorCount = $derived(
     snap ? snap.nodes.filter((n) => n.diagnostics.some((d) => d.severity === "error")).length : 0,
@@ -174,6 +199,7 @@
     creating = undefined;
     editorDirty = false;
     collapsed.clear();
+    focusId = null;
     const workspaces = settings.workspaces.includes(path) ? settings.workspaces : [...settings.workspaces, path];
     await persistSettings({ workspaces, last: path });
     try {
@@ -237,6 +263,9 @@
       y,
       items: [
         { label: "開く", action: () => openFromOverview(id) },
+        focusId === id
+          ? { label: "全体の表示に戻す", action: () => focusOn(null) }
+          : { label: "この目的から下だけを表示", action: () => focusOn(id) },
         {
           label: "子目的を追加",
           action: () => startCreate(id),
@@ -376,6 +405,23 @@
         {/if}
       {/if}
 
+      {#if focusNode}
+        <div class="focus-bar">
+          <nav class="crumbs" aria-label="表示中の範囲">
+            <button class="crumb" onclick={() => focusOn(null)} title="全体の表示に戻す">全体</button>
+            {#each focusNode.ancestors as a (a)}
+              <span class="sep" aria-hidden="true">›</span>
+              <button class="crumb" onclick={() => focusOn(a)} title="ここから下を表示">{displayName(model.byId.get(a), a)}</button>
+            {/each}
+            <span class="sep" aria-hidden="true">›</span>
+            <span class="crumb current" aria-current="location">{displayName(focusNode)}</span>
+          </nav>
+          <button class="icon ghost" onclick={() => focusOn(null)} title="全体の表示に戻す" aria-label="全体の表示に戻す">
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" fill="none" /></svg>
+          </button>
+        </div>
+      {/if}
+
       <div class="tree-scroll">
         {#if snap.nodes.length === 0}
           <div class="empty">
@@ -392,7 +438,7 @@
           {/if}
         </ul>
 
-        {#if model.unresolved.length > 0}
+        {#if model.unresolved.length > 0 && !focusNode}
           <h3 class="group">未解決（祖先を辿れない）</h3>
           <ul class="tree" role="tree">
             {#each model.unresolved as id (id)}
@@ -401,7 +447,7 @@
           </ul>
         {/if}
 
-        {#if model.broken.length > 0}
+        {#if model.broken.length > 0 && !focusNode}
           <h3 class="group">読み込めないファイル</h3>
           <ul class="tree" role="tree">
             {#each model.broken as id (id)}
@@ -606,6 +652,49 @@
     flex-wrap: wrap;
     gap: 2px 6px;
     align-items: center;
+  }
+  .focus-bar {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 4px 4px 4px 8px;
+    border-radius: var(--radius);
+    background: var(--accent-soft);
+  }
+  .crumbs {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 2px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .crumb {
+    border: none;
+    background: none;
+    padding: 0 2px;
+    font-size: 12px;
+    color: var(--accent);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  button.crumb:hover {
+    text-decoration: underline;
+  }
+  .crumb.current {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .sep {
+    color: var(--text-3);
+  }
+  .focus-bar button.icon {
+    width: 22px;
+    height: 22px;
   }
   .tool-buttons {
     display: flex;
