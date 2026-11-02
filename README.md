@@ -8,6 +8,26 @@ AIエージェントと人間が共有する「目的（Why）」と判断原則
 
 仕様は [docs/specification.md](docs/specification.md)、開発計画は [docs/development-plan.md](docs/development-plan.md) を参照してください。
 
+## インストール
+
+[Releases](https://github.com/januaraid/purpose-manager/releases) から使う環境のファイルをダウンロードします。
+
+| 環境 | ファイル |
+|---|---|
+| Windows 10/11 | `Purpose.Manager_<版>_x64-setup.exe`（または `.msi`） |
+| macOS（Apple シリコン） | `Purpose.Manager_<版>_aarch64.dmg` |
+
+**このビルドはコード署名をしていません。** 初回起動時に OS の警告が出ます。
+
+- **Windows:** 「Windows によって PC が保護されました」と出たら、「詳細情報」→「実行」を選びます。
+- **macOS:** `.dmg` からアプリを「アプリケーション」へコピーしたあと、初回だけターミナルで次を実行してから起動します。
+  ```sh
+  xattr -dr com.apple.quarantine "/Applications/Purpose Manager.app"
+  ```
+  （または、起動を試みたあと「システム設定」→「プライバシーとセキュリティ」で「このまま開く」を選びます）
+
+会社の PC に入れる場合は、先に社内のソフトウェア導入ルールを確認してください。未署名のアプリは導入が認められないことがあります。
+
 ## Workspaceの形式
 
 ```text
