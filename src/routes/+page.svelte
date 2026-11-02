@@ -3,6 +3,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
+  import { ZOOM_STEPS, applyZoom, clampZoom, stepZoom } from "$lib/zoom";
   import { buildTree, canHaveChild, descendants, displayName, folderName, todayLocal, worstSeverity } from "$lib/tree";
   import type { LoadFailure, Settings, Snapshot } from "$lib/types";
   import ContextMenu, { type MenuItem } from "$lib/components/ContextMenu.svelte";
@@ -16,14 +17,15 @@
   const PREFS_KEY = "purpose-manager.layout";
   const SIDEBAR_MIN = 220;
   const SIDEBAR_MAX = 640;
-  function loadPrefs(): { width: number; open: boolean; view: "detail" | "overview" } {
-    const d = { width: 300, open: true, view: "detail" as const };
+  function loadPrefs(): { width: number; open: boolean; view: "detail" | "overview"; zoom: number } {
+    const d = { width: 300, open: true, view: "detail" as const, zoom: 1 };
     try {
       const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}");
       return {
         width: typeof p.width === "number" ? Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, p.width)) : d.width,
         open: typeof p.open === "boolean" ? p.open : d.open,
         view: p.view === "overview" ? "overview" : d.view,
+        zoom: clampZoom(p.zoom),
       };
     } catch {
       return d;
@@ -34,7 +36,7 @@
   let sidebarOpen = $state(prefs.open);
   let view = $state<"detail" | "overview">(prefs.view);
   $effect(() => {
-    const v = { width: sidebarWidth, open: sidebarOpen, view };
+    const v = { width: sidebarWidth, open: sidebarOpen, view, zoom };
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(v));
     } catch {
@@ -58,10 +60,43 @@
     if (e.key === "ArrowLeft") sidebarWidth = Math.max(SIDEBAR_MIN, sidebarWidth - 20);
     if (e.key === "ArrowRight") sidebarWidth = Math.min(SIDEBAR_MAX, sidebarWidth + 20);
   }
+  // 表示倍率（高精細な画面で文字が小さく感じるとき用）
+  let zoom = $state(prefs.zoom);
+  $effect(() => {
+    applyZoom(zoom).catch(() => {
+      /* Tauri の外（ブラウザでの確認時）では何もしない */
+    });
+  });
+  function setUiZoom(z: number) {
+    zoom = clampZoom(z);
+    showToast(`表示倍率 ${Math.round(zoom * 100)}%`);
+  }
+  function openZoomMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    menu = {
+      x: r.left,
+      y: r.bottom + 4,
+      items: ZOOM_STEPS.map((s) => ({
+        label: `${s === zoom ? "✓ " : "　"}${Math.round(s * 100)}%${s === 1 ? "（標準）" : ""}`,
+        action: () => setUiZoom(s),
+      })),
+    };
+  }
+
   function onGlobalKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "b") {
       e.preventDefault();
       sidebarOpen = !sidebarOpen;
+    } else if (mod && (e.key === "+" || e.key === "=" || e.key === ";")) {
+      e.preventDefault();
+      setUiZoom(stepZoom(zoom, 1));
+    } else if (mod && (e.key === "-" || e.key === "_")) {
+      e.preventDefault();
+      setUiZoom(stepZoom(zoom, -1));
+    } else if (mod && e.key === "0") {
+      e.preventDefault();
+      setUiZoom(1);
     }
   }
 
@@ -477,6 +512,9 @@
           <button role="tab" aria-selected={view === "detail"} class:on={view === "detail"} onclick={() => (view = "detail")}>詳細</button>
           <button role="tab" aria-selected={view === "overview"} class:on={view === "overview"} onclick={() => (view = "overview")}>全体図</button>
         </div>
+        <button class="zoom-btn ghost" onclick={openZoomMenu} title="表示倍率（Ctrl+＋ / Ctrl+− / Ctrl+0）" aria-label="表示倍率">
+          {Math.round(zoom * 100)}%
+        </button>
       </div>
     {/if}
     {#if !root}
@@ -620,6 +658,13 @@
     border-radius: var(--radius);
     overflow: hidden;
     flex: none;
+  }
+  .zoom-btn {
+    flex: none;
+    font-size: 12px;
+    padding: 3px 8px;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
   }
   .seg button {
     border: none;

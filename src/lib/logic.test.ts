@@ -14,6 +14,7 @@ import {
   visibleChildren,
   worstSeverity,
 } from "./tree";
+import { clampZoom, stepZoom } from "./zoom";
 import type { PurposeFields, PurposeNode, Snapshot } from "./types";
 
 function fields(id: string, parent: string | null, status: "active" | "archived" = "active"): PurposeFields {
@@ -157,6 +158,21 @@ describe("draft", () => {
     for (const bad of ["", "Abc", "a_b", "-a", "a--b", "con", "a".repeat(65)]) {
       expect(idProblem(bad)).not.toBeNull();
     }
+  });
+});
+
+describe("zoom", () => {
+  it("steps through presets", () => {
+    expect(stepZoom(1, 1)).toBe(1.1);
+    expect(stepZoom(1, -1)).toBe(0.9);
+    expect(stepZoom(1.2, 1)).toBe(1.25);
+    expect(stepZoom(2, 1)).toBe(2);
+    expect(stepZoom(0.8, -1)).toBe(0.8);
+  });
+  it("clamps stored values", () => {
+    expect(clampZoom("x")).toBe(1);
+    expect(clampZoom(9)).toBe(2);
+    expect(clampZoom(0.1)).toBe(0.8);
   });
 });
 
