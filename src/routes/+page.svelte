@@ -3,7 +3,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
-  import { ZOOM_STEPS, applyZoom, clampZoom, stepZoom } from "$lib/zoom";
+  import { applyZoom, clampZoom, stepZoom } from "$lib/zoom";
   import { buildTree, canHaveChild, descendants, displayName, folderName, todayLocal, worstSeverity } from "$lib/tree";
   import type { LoadFailure, Settings, Snapshot } from "$lib/types";
   import ContextMenu, { type MenuItem } from "$lib/components/ContextMenu.svelte";
@@ -70,17 +70,6 @@
   function setUiZoom(z: number) {
     zoom = clampZoom(z);
     showToast(`表示倍率 ${Math.round(zoom * 100)}%`);
-  }
-  function openZoomMenu(e: MouseEvent) {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    menu = {
-      x: r.left,
-      y: r.bottom + 4,
-      items: ZOOM_STEPS.map((s) => ({
-        label: `${s === zoom ? "✓ " : "　"}${Math.round(s * 100)}%${s === 1 ? "（標準）" : ""}`,
-        action: () => setUiZoom(s),
-      })),
-    };
   }
 
   function onGlobalKey(e: KeyboardEvent) {
@@ -512,9 +501,6 @@
           <button role="tab" aria-selected={view === "detail"} class:on={view === "detail"} onclick={() => (view = "detail")}>詳細</button>
           <button role="tab" aria-selected={view === "overview"} class:on={view === "overview"} onclick={() => (view = "overview")}>全体図</button>
         </div>
-        <button class="zoom-btn ghost" onclick={openZoomMenu} title="表示倍率（Ctrl+＋ / Ctrl+− / Ctrl+0）" aria-label="表示倍率">
-          {Math.round(zoom * 100)}%
-        </button>
       </div>
     {/if}
     {#if !root}
@@ -658,13 +644,6 @@
     border-radius: var(--radius);
     overflow: hidden;
     flex: none;
-  }
-  .zoom-btn {
-    flex: none;
-    font-size: 12px;
-    padding: 3px 8px;
-    color: var(--text-2);
-    font-variant-numeric: tabular-nums;
   }
   .seg button {
     border: none;
