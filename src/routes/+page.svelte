@@ -3,8 +3,9 @@
   import { SvelteSet } from "svelte/reactivity";
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
-  import { buildTree, displayName, folderName, todayLocal, worstSeverity } from "$lib/tree";
+  import { buildTree, canHaveChild, displayName, folderName, todayLocal, worstSeverity } from "$lib/tree";
   import type { LoadFailure, Settings, Snapshot } from "$lib/types";
+  import ContextMenu, { type MenuItem } from "$lib/components/ContextMenu.svelte";
   import DiagnosticList from "$lib/components/DiagnosticList.svelte";
   import PurposeEditor from "$lib/components/PurposeEditor.svelte";
   import TreeItem from "$lib/components/TreeItem.svelte";
@@ -208,6 +209,46 @@
     view = "detail";
   }
 
+  // 右クリックメニュー（サイドパネルのツリーと全体図で共通）
+  let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  function openMenu(id: string, x: number, y: number) {
+    const n = model?.byId.get(id);
+    if (!n || !root) return;
+    const parent = n.fields?.parent ?? null;
+    const parentOk = parent === null || canHaveChild(model?.byId.get(parent));
+    const ws = root;
+    menu = {
+      x,
+      y,
+      items: [
+        { label: "開く", action: () => openFromOverview(id) },
+        {
+          label: "子目的を追加",
+          action: () => startCreate(id),
+          disabled: !canHaveChild(n),
+          title: canHaveChild(n) ? undefined : "エラーのあるファイルや、祖先を辿れない目的には追加できません",
+        },
+        {
+          label: parent === null ? "ルートの目的を追加" : "同じ親の目的を追加",
+          action: () => startCreate(parent),
+          disabled: !n.fields || !parentOk,
+        },
+        {
+          label: "CLAUDE.md 用にコピー",
+          disabled: !n.fields,
+          action: async () => {
+            try {
+              await navigator.clipboard.writeText(await api.claudeMdSnippet(ws, id));
+              showToast("CLAUDE.md 向けの指示をコピーしました");
+            } catch (e) {
+              showToast(`コピーできませんでした: ${errorMessage(e)}`);
+            }
+          },
+        },
+      ],
+    };
+  }
+
   async function onSaved(id: string) {
     creating = undefined;
     selectedId = id;
@@ -299,7 +340,10 @@
     {#if snap && model}
       <div class="tools">
         <label class="toggle"><input type="checkbox" bind:checked={showArchived} /> アーカイブを表示</label>
-        <button class="ghost small" onclick={reload} title="ファイルを読み込み直す">再読み込み</button>
+        <div class="tool-buttons">
+          <button class="ghost small" onclick={() => startCreate(null)} title="ルートの目的を追加">＋ ルート</button>
+          <button class="ghost small" onclick={reload} title="ファイルを読み込み直す">再読み込み</button>
+        </div>
       </div>
       <form class="find" onsubmit={openById}>
         <input type="search" bind:value={idQuery} placeholder="IDを指定して開く" spellcheck="false" />
@@ -324,7 +368,7 @@
         {/if}
         <ul class="tree" role="tree">
           {#each visibleRoots as id (id)}
-            <TreeItem {model} {id} {showArchived} {selectedId} {collapsed} onSelect={select} />
+            <TreeItem {model} {id} {showArchived} {selectedId} {collapsed} onSelect={select} onAddChild={startCreate} onContextMenu={openMenu} />
           {/each}
         </ul>
 
@@ -332,7 +376,7 @@
           <h3 class="group">未解決（祖先を辿れない）</h3>
           <ul class="tree" role="tree">
             {#each model.unresolved as id (id)}
-              <TreeItem {model} {id} {showArchived} {selectedId} {collapsed} onSelect={select} />
+              <TreeItem {model} {id} {showArchived} {selectedId} {collapsed} onSelect={select} onAddChild={startCreate} onContextMenu={openMenu} />
             {/each}
           </ul>
         {/if}
@@ -387,7 +431,7 @@
       </div>
     {:else if snap && model && view === "overview"}
       <div class="overview-wrap">
-        <TreeOverview {model} roots={visibleRoots} {showArchived} {selectedId} onOpen={openFromOverview} />
+        <TreeOverview {model} roots={visibleRoots} {showArchived} {selectedId} onOpen={openFromOverview} onAddChild={startCreate} onContextMenu={openMenu} />
       </div>
     {:else if snap && model}
       {#key editorKey}
@@ -421,6 +465,10 @@
       {/key}
     {/if}
   </main>
+
+  {#if menu}
+    <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => (menu = null)} />
+  {/if}
 
   {#if toast}
     <div class="toast" role="status">{toast}</div>
@@ -535,6 +583,10 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+  }
+  .tool-buttons {
+    display: flex;
+    gap: 2px;
   }
   .toggle {
     display: flex;

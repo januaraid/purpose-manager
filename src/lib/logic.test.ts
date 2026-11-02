@@ -3,6 +3,7 @@ import { fromDraft, idProblem, isDirty, newDraft, randomSuffix, suggestId, toDra
 import {
   ancestorsIfParent,
   buildTree,
+  canHaveChild,
   descendants,
   layoutTree,
   folderName,
@@ -94,6 +95,14 @@ describe("tree", () => {
     expect(ids).not.toContain("broken");
     expect(ids).toContain("root");
     expect(parentCandidates(model, null).map((n) => n.id)).toContain("a1");
+  });
+
+  it("allows children only under loadable, resolved nodes", () => {
+    expect(canHaveChild(model.byId.get("a1"))).toBe(true);
+    expect(canHaveChild(model.byId.get("old"))).toBe(true);
+    expect(canHaveChild(model.byId.get("orphan"))).toBe(false);
+    expect(canHaveChild(model.byId.get("broken"))).toBe(false);
+    expect(canHaveChild(undefined)).toBe(false);
   });
 
   it("computes new ancestors for a parent change", () => {

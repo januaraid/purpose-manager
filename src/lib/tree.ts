@@ -68,6 +68,11 @@ export function parentCandidates(model: TreeModel, id: string | null): PurposeNo
     .sort((a, b) => pathLabel(model, a).localeCompare(pathLabel(model, b), "ja"));
 }
 
+/** 子目的の親にできるか（親の選択肢に出るものと同じ条件）。 */
+export function canHaveChild(node: PurposeNode | undefined): boolean {
+  return !!node && node.fields !== null && node.resolved;
+}
+
 /** ルートからの表示名の連なり（親の選択肢に使う）。 */
 export function pathLabel(model: TreeModel, node: PurposeNode): string {
   return [...node.ancestors, node.id].map((a) => displayName(model.byId.get(a), a)).join(" › ");

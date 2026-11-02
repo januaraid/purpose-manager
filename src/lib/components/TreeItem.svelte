@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SvelteSet } from "svelte/reactivity";
-  import { displayName, visibleChildren, worstSeverity, type TreeModel } from "$lib/tree";
+  import { canHaveChild, displayName, visibleChildren, worstSeverity, type TreeModel } from "$lib/tree";
   import TreeItem from "./TreeItem.svelte";
 
   let {
@@ -11,6 +11,8 @@
     selectedId,
     collapsed,
     onSelect,
+    onAddChild,
+    onContextMenu,
   }: {
     model: TreeModel;
     id: string;
@@ -19,6 +21,8 @@
     selectedId: string | null;
     collapsed: SvelteSet<string>;
     onSelect: (id: string) => void;
+    onAddChild: (parent: string) => void;
+    onContextMenu: (id: string, x: number, y: number) => void;
   } = $props();
 
   const node = $derived(model.byId.get(id));
@@ -41,6 +45,11 @@
       class:archived={node.effective === "archived"}
       class:inherited={node.effective === "inherited_inactive"}
       style:padding-left="{8 + depth * 16}px"
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        onContextMenu(id, e.clientX, e.clientY);
+      }}
+      role="presentation"
     >
       {#if kids.length > 0}
         <button class="chevron ghost" onclick={toggle} aria-label={isCollapsed ? "展開" : "折り畳む"}>
@@ -57,11 +66,21 @@
         {#if node.effective === "inherited_inactive"}<span class="badge inherited">親がアーカイブ</span>{/if}
         {#if severity}<span class="dot {severity}" title={severity === "error" ? "エラーあり" : "警告あり"}></span>{/if}
       </button>
+      {#if canHaveChild(node)}
+        <button
+          class="add ghost"
+          onclick={() => onAddChild(id)}
+          title="「{displayName(node)}」の子目的を追加"
+          aria-label="「{displayName(node)}」の子目的を追加"
+        >
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" fill="none" /></svg>
+        </button>
+      {/if}
     </div>
     {#if kids.length > 0 && !isCollapsed}
       <ul role="group">
         {#each kids as child (child)}
-          <TreeItem {model} id={child} depth={depth + 1} {showArchived} {selectedId} {collapsed} {onSelect} />
+          <TreeItem {model} id={child} depth={depth + 1} {showArchived} {selectedId} {collapsed} {onSelect} {onAddChild} {onContextMenu} />
         {/each}
       </ul>
     {/if}
@@ -128,6 +147,23 @@
   }
   .label:hover:not(:disabled) {
     background: transparent;
+  }
+  .add {
+    flex: none;
+    padding: 3px;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    opacity: 0;
+  }
+  .row:hover .add,
+  .row.selected .add,
+  .add:focus-visible {
+    opacity: 1;
+  }
+  .add:hover {
+    color: var(--accent);
+    background: var(--surface);
   }
   .name {
     overflow: hidden;

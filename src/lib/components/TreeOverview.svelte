@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { displayName, layoutTree, worstSeverity, type TreeModel } from "$lib/tree";
+  import { canHaveChild, displayName, layoutTree, worstSeverity, type TreeModel } from "$lib/tree";
 
   let {
     model,
@@ -7,12 +7,16 @@
     showArchived,
     selectedId,
     onOpen,
+    onAddChild,
+    onContextMenu,
   }: {
     model: TreeModel;
     roots: string[];
     showArchived: boolean;
     selectedId: string | null;
     onOpen: (id: string) => void;
+    onAddChild: (parent: string) => void;
+    onContextMenu: (id: string, x: number, y: number) => void;
   } = $props();
 
   const NODE_W = 200;
@@ -72,7 +76,7 @@
   // 背景をドラッグして移動する
   let drag: { x: number; y: number; left: number; top: number; moved: boolean } | null = null;
   function onPointerDown(e: PointerEvent) {
-    if (e.button !== 0 || !scroller || (e.target as Element).closest(".node")) return;
+    if (e.button !== 0 || !scroller || (e.target as Element).closest(".cell")) return;
     drag = { x: e.clientX, y: e.clientY, left: scroller.scrollLeft, top: scroller.scrollTop, moved: false };
     scroller.setPointerCapture(e.pointerId);
   }
@@ -118,7 +122,7 @@
     <button onclick={() => setZoom(zoom * 1.2)} aria-label="拡大">＋</button>
     <button onclick={fit}>全体を表示</button>
     <button onclick={() => setZoom(1)}>100%</button>
-    <span class="muted hint">Ctrl+ホイールで拡大縮小・背景をドラッグで移動・クリックで詳細</span>
+    <span class="muted hint">Ctrl+ホイールで拡大縮小・背景をドラッグで移動・クリックで詳細・右クリックでメニュー</span>
   </div>
 
   {#if layout.nodes.length === 0}
@@ -147,6 +151,14 @@
           {#if node && p}
             {@const sev = worstSeverity(node.diagnostics.filter((d) => d.severity !== "info"))}
             <foreignObject x={p.x} y={p.y} width={NODE_W} height={NODE_H}>
+              <div
+                class="cell"
+                role="presentation"
+                oncontextmenu={(e) => {
+                  e.preventDefault();
+                  onContextMenu(n.id, e.clientX, e.clientY);
+                }}
+              >
               <button
                 class="node {node.effective}"
                 class:selected={selectedId === n.id}
@@ -164,6 +176,17 @@
                   {#if sev}<span class="dot {sev}"></span>{/if}
                 </span>
               </button>
+              {#if canHaveChild(node)}
+                <button
+                  class="add"
+                  onclick={() => onAddChild(n.id)}
+                  title="「{displayName(node)}」の子目的を追加"
+                  aria-label="「{displayName(node)}」の子目的を追加"
+                >
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" fill="none" /></svg>
+                </button>
+              {/if}
+              </div>
             </foreignObject>
           {/if}
         {/each}
@@ -226,6 +249,32 @@
     stroke: var(--archived);
     stroke-dasharray: 4 3;
   }
+  .cell {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  .add {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    background: var(--surface);
+    opacity: 0;
+  }
+  .cell:hover .add,
+  .add:focus-visible {
+    opacity: 1;
+  }
+  .add:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
   .node {
     width: 100%;
     height: 100%;
@@ -234,7 +283,7 @@
     justify-content: center;
     gap: 2px;
     text-align: left;
-    padding: 6px 10px;
+    padding: 6px 28px 6px 10px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-left: 4px solid var(--accent);
