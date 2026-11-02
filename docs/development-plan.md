@@ -208,9 +208,9 @@ purpose-manager/
 - [x] Tauriアプリの雛形を作成
 - [x] 架空のPurpose Workspaceを作成（`fixtures/sample-workspace`、5階層）
 - [x] スキーマ／親子関係／保存処理のテストを最初に書く
-- [ ] Windowsで起動（済）、macOSで早期スモークテスト（未）
-- [ ] GitHub Publicを作成し、会社データをコミットしない仕組みを確認（`.gitignore` の `/workspaces` は設定済み。公開は未）
-- [x] PRテストとタグReleaseのCIを構築（`.github/workflows`。GitHub上での実行は未確認）
+- [ ] Windowsで起動し実機で動作確認（済）、macOSで早期スモークテスト（CIでのビルドとテストは成功。実機での起動は未）
+- [x] GitHub Publicを作成し、会社データをコミットしない仕組みを確認（2026-11-02 公開。`.gitignore` の `/workspaces`、コミットの作者はGitHubのnoreplyアドレス）
+- [x] PRテストとタグReleaseのCIを構築（`.github/workflows`。WindowsとmacOSでのテストとアプリのビルドが成功。タグReleaseは未実行）
 - [ ] 職場Macの導入ポリシーを確認
 
 ---
