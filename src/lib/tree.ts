@@ -173,3 +173,61 @@ export function layoutTree(model: TreeModel, roots: string[], showArchived: bool
   });
   return { nodes, edges, depths: maxDepth + 1, rows: next };
 }
+
+export interface SearchHit {
+  id: string;
+  /** どこに一致したか。 */
+  field: "name" | "id" | "purpose" | "principles" | "rationale";
+  /** 本文に一致したときの前後の抜粋。 */
+  snippet: string | null;
+}
+
+const norm = (s: string) => s.normalize("NFKC").toLowerCase();
+
+function excerpt(text: string, q: string): string {
+  const i = norm(text).indexOf(q);
+  const start = Math.max(0, i - 12);
+  const end = Math.min(text.length, i + q.length + 24);
+  return (start > 0 ? "…" : "") + text.slice(start, end).replace(/\s+/g, " ") + (end < text.length ? "…" : "");
+}
+
+/**
+ * 表示名・ID・目的・判断原則・背景から探す。空白区切りの語はすべて含むものに絞る（AND）。
+ * 並び順は、表示名の前方一致 → 表示名 → ID → 本文 の順。
+ */
+export function searchPurposes(model: TreeModel, query: string, limit = 8): SearchHit[] {
+  const terms = norm(query).split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [];
+  const scored: { hit: SearchHit; score: number; label: string }[] = [];
+  for (const n of model.byId.values()) {
+    const f = n.fields;
+    const name = norm(displayName(n));
+    const id = norm(n.id);
+    const fields: [SearchHit["field"], string][] = [
+      ["purpose", f?.purpose ?? ""],
+      ["principles", (f?.principles ?? []).join(" / ")],
+      ["rationale", f?.rationale ?? ""],
+    ];
+    const all = [name, id, ...fields.map(([, t]) => norm(t))].join("\u0000");
+    if (!terms.every((t) => all.includes(t))) continue;
+    const t0 = terms[0];
+    let hit: SearchHit;
+    let score: number;
+    if (terms.every((t) => name.includes(t))) {
+      hit = { id: n.id, field: "name", snippet: null };
+      score = name.startsWith(t0) ? 0 : 1;
+    } else if (terms.every((t) => id.includes(t) || name.includes(t))) {
+      hit = { id: n.id, field: "id", snippet: null };
+      score = 2;
+    } else {
+      const [field, text] = fields.find(([, t]) => norm(t).includes(t0)) ?? fields.find(([, t]) => terms.some((q) => norm(t).includes(q)))!;
+      const q = terms.find((x) => norm(text).includes(x))!;
+      hit = { id: n.id, field, snippet: excerpt(text, q) };
+      score = 3;
+    }
+    if (n.effective !== "active") score += 0.5;
+    scored.push({ hit, score, label: name });
+  }
+  scored.sort((a, b) => a.score - b.score || a.label.localeCompare(b.label, "ja"));
+  return scored.slice(0, limit).map((s) => s.hit);
+}

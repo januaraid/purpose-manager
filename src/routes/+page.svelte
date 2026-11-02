@@ -10,6 +10,7 @@
   import DiagnosticList from "$lib/components/DiagnosticList.svelte";
   import PurposeEditor from "$lib/components/PurposeEditor.svelte";
   import PendingRow from "$lib/components/PendingRow.svelte";
+  import SearchBox from "$lib/components/SearchBox.svelte";
   import TreeItem from "$lib/components/TreeItem.svelte";
   import TreeMinimap from "$lib/components/TreeMinimap.svelte";
   import TreeOverview from "$lib/components/TreeOverview.svelte";
@@ -117,7 +118,6 @@
   let showWsDiags = $state(false);
   let editorDirty = $state(false);
   let toast = $state<string | null>(null);
-  let idQuery = $state("");
   const collapsed = new SvelteSet<string>();
 
   const model = $derived(snap ? buildTree(snap) : null);
@@ -333,16 +333,12 @@
     await reload();
   }
 
-  async function openById(e: SubmitEvent) {
-    e.preventDefault();
-    const id = idQuery.trim();
-    if (!id) return;
-    if (model?.byId.has(id)) {
-      await select(id);
-      idQuery = "";
-    } else {
-      showToast(`ID「${id}」の目的は見つかりません`);
-    }
+  /** 検索結果から開く。非アクティブな目的ならアーカイブを表示に切り替える。 */
+  async function openFound(id: string) {
+    const n = model?.byId.get(id);
+    if (n && n.effective !== "active" && n.resolved) showArchived = true;
+    await select(id);
+    view = "detail";
   }
 
   onMount(() => {
@@ -419,9 +415,7 @@
           </button>
         </div>
       </div>
-      <form class="find" onsubmit={openById}>
-        <input type="search" bind:value={idQuery} placeholder="IDを指定して開く" spellcheck="false" />
-      </form>
+      <SearchBox {model} onOpen={openFound} />
 
       {#if snap.diagnostics.length > 0 || errorCount > 0}
         <button class="ws-diag {wsSeverity ?? (errorCount > 0 ? 'error' : 'info')}" onclick={() => (showWsDiags = !showWsDiags)}>
@@ -770,9 +764,6 @@
   .small {
     font-size: 12px;
     padding: 2px 8px;
-  }
-  .find input {
-    font-size: 13px;
   }
   .ws-diag {
     text-align: left;

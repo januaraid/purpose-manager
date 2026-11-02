@@ -10,6 +10,7 @@ import {
   folderName,
   parentCandidates,
   referencingChildren,
+  searchPurposes,
   todayLocal,
   visibleChildren,
   worstSeverity,
@@ -173,6 +174,33 @@ describe("zoom", () => {
     expect(clampZoom("x")).toBe(1);
     expect(clampZoom(9)).toBe(2);
     expect(clampZoom(0.1)).toBe(0.8);
+  });
+});
+
+describe("searchPurposes", () => {
+  const model = buildTree({
+    ...snap,
+    nodes: snap.nodes.map((n) =>
+      n.id === "a1" && n.fields
+        ? { ...n, fields: { ...n.fields, name: "検索体験", purpose: "求職者が希望に合う求人をすぐ見つけられる", principles: ["応募数より満足度"] } }
+        : n,
+    ),
+  });
+  const ids = (q: string) => searchPurposes(model, q).map((h) => h.id);
+
+  it("matches names, ids and body text", () => {
+    expect(ids("検索")).toEqual(["a1"]);
+    expect(ids("ｏｌｄ")).toEqual(["old", "old1"]);
+    const h = searchPurposes(model, "満足度")[0];
+    expect(h).toMatchObject({ id: "a1", field: "principles" });
+    expect(h.snippet).toContain("満足度");
+  });
+
+  it("requires all terms and ranks name hits first", () => {
+    expect(ids("検索 希望")).toEqual(["a1"]);
+    expect(ids("検索 存在しない")).toEqual([]);
+    expect(ids("a")[0]).toBe("a");
+    expect(ids("  ")).toEqual([]);
   });
 });
 
