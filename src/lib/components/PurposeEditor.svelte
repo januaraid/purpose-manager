@@ -21,6 +21,7 @@
     model,
     node,
     createParent = null,
+    showArchived = false,
     onSaved,
     onCancel,
     onDeleted,
@@ -36,6 +37,8 @@
     /** 編集対象。`null` は新規作成。 */
     node: PurposeNode | null;
     createParent?: string | null;
+    /** false のとき、親の選択肢から非アクティブな目的を外す（現在の親は残す）。 */
+    showArchived?: boolean;
     onSaved: (id: string) => void;
     onCancel: () => void;
     onDeleted: () => void;
@@ -102,9 +105,13 @@
     saveMessage = null;
   }
 
-  const candidates = $derived(parentCandidates(model, isNew ? null : (node?.id ?? null)));
-  const parentKnown = $derived(draft.parent === "" || candidates.some((c) => c.id === draft.parent));
   const originalParent = $derived(isNew ? createParent ?? "" : (baseFields?.parent ?? ""));
+  const candidates = $derived(
+    parentCandidates(model, isNew ? null : (node?.id ?? null)).filter(
+      (c) => showArchived || c.effective === "active" || c.id === draft.parent || c.id === originalParent,
+    ),
+  );
+  const parentKnown = $derived(draft.parent === "" || candidates.some((c) => c.id === draft.parent));
   const parentChanged = $derived(!isNew && draft.parent !== originalParent);
   const previewAncestors = $derived(ancestorsIfParent(model, draft.parent === "" ? null : draft.parent));
   const descendantIds = $derived(node ? descendants(model, node.id) : []);

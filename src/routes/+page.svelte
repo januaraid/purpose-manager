@@ -460,6 +460,7 @@
             {model}
             node={creating !== undefined ? null : selected}
             createParent={creating ?? null}
+            {showArchived}
             {onSaved}
             onCancel={() => {
               creating = undefined;
