@@ -10,6 +10,7 @@
   import DiagnosticList from "$lib/components/DiagnosticList.svelte";
   import PurposeEditor from "$lib/components/PurposeEditor.svelte";
   import PendingRow from "$lib/components/PendingRow.svelte";
+  import PurposeGuide from "$lib/components/PurposeGuide.svelte";
   import SearchBox from "$lib/components/SearchBox.svelte";
   import TreeItem from "$lib/components/TreeItem.svelte";
   import TreeMinimap from "$lib/components/TreeMinimap.svelte";
@@ -526,6 +527,7 @@
           </button>
           <span class="ws-title" title={root}>{snap.name}</span>
         {/if}
+        <span class="guide-slot"><PurposeGuide align="right" label="目的・目標・手段" /></span>
         <div class="seg" role="tablist" aria-label="表示">
           <button role="tab" aria-selected={view === "detail"} class:on={view === "detail"} onclick={() => (view = "detail")} title="詳細（Ctrl+1）">詳細</button>
           <button role="tab" aria-selected={view === "overview"} class:on={view === "overview"} onclick={() => (view = "overview")} title="全体図（Ctrl+2）">全体図</button>
@@ -685,8 +687,11 @@
     white-space: nowrap;
     min-width: 0;
   }
-  .seg {
+  .guide-slot {
     margin-left: auto;
+    flex: none;
+  }
+  .seg {
     display: inline-flex;
     border: 1px solid var(--border);
     border-radius: var(--radius);

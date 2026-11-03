@@ -14,6 +14,7 @@
   } from "$lib/tree";
   import type { Diagnostic, PurposeFields, PurposeNode, SaveError, Snapshot } from "$lib/types";
   import DiagnosticList from "./DiagnosticList.svelte";
+  import PurposeGuide from "./PurposeGuide.svelte";
 
   let {
     root,
@@ -346,10 +347,11 @@
           {/if}
         </label>
 
-        <label class="field">
-          <span class="lbl">目的 <em>必須</em></span>
-          <textarea bind:value={draft.purpose} rows="3" placeholder="この目的が実現したい状態。親の目的にどう貢献するか"></textarea>
-        </label>
+        <!-- ヘルプのボタンを置くため、label 要素で囲まない（押したときに入力欄へ移らないように） -->
+        <div class="field">
+          <span class="lbl"><label for="purpose-text">目的</label> <em>必須</em> <PurposeGuide /></span>
+          <textarea id="purpose-text" bind:value={draft.purpose} rows="3" placeholder="この目的が実現したい状態。親の目的にどう貢献するか"></textarea>
+        </div>
 
         <label class="field">
           <span class="lbl">判断原則</span>
