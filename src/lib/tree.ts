@@ -174,6 +174,34 @@ export function layoutTree(model: TreeModel, roots: string[], showArchived: bool
   return { nodes, edges, depths: maxDepth + 1, rows: next };
 }
 
+/**
+ * まとめてコピーする目的の並び（親から子へ、ツリーの表示順）。
+ * `id` を指定したときは、祖先 → その目的 → 子孫。指定しないときは `roots` から下すべて。
+ * 子孫はツリーと同じく、アーカイブを表示しないときは非アクティブなものを除く。
+ */
+export function exportOrder(model: TreeModel, id: string | null, roots: string[], showArchived: boolean): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const walk = (x: string) => {
+    if (seen.has(x)) return;
+    seen.add(x);
+    out.push(x);
+    for (const k of visibleChildren(model, x, showArchived)) walk(k);
+  };
+  if (id) {
+    const n = model.byId.get(id);
+    if (!n) return [];
+    for (const a of n.ancestors) {
+      seen.add(a);
+      out.push(a);
+    }
+    walk(id);
+  } else {
+    roots.forEach(walk);
+  }
+  return out.filter((x) => model.byId.get(x)?.fields);
+}
+
 export interface SearchHit {
   id: string;
   /** どこに一致したか。 */

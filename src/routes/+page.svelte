@@ -4,7 +4,7 @@
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
   import { applyZoom, clampZoom, stepZoom } from "$lib/zoom";
-  import { buildTree, canHaveChild, descendants, displayName, folderName, todayLocal, worstSeverity } from "$lib/tree";
+  import { buildTree, canHaveChild, descendants, displayName, exportOrder, folderName, todayLocal, worstSeverity } from "$lib/tree";
   import type { LoadFailure, Settings, Snapshot } from "$lib/types";
   import ContextMenu, { type MenuItem } from "$lib/components/ContextMenu.svelte";
   import DiagnosticList from "$lib/components/DiagnosticList.svelte";
@@ -278,6 +278,26 @@
     view = "detail";
   }
 
+  /**
+   * YAMLをそのまま結合してクリップボードへ（AIに渡して相談する用）。
+   * `id` を指定すると祖先〜その目的〜子孫、null なら表示中のツリー全体。
+   */
+  async function copyYaml(id: string | null) {
+    if (!model || !snap) return;
+    const ids = exportOrder(model, id, visibleRoots, showArchived);
+    if (ids.length === 0) return;
+    const n = id ? model.byId.get(id) : null;
+    const scope = n ? `「${displayName(n)}」とその祖先・子孫` : focusNode ? `「${displayName(focusNode)}」から下` : "全体";
+    const title = `Purpose Manager / Workspace「${snap.name}」の目的（${scope}）`;
+    try {
+      const text = await api.concatYaml(snap.root, ids, title);
+      await navigator.clipboard.writeText(text);
+      showToast(`YAML ${ids.length} 件をコピーしました（${text.length.toLocaleString()} 文字）`);
+    } catch (e) {
+      showToast(`コピーできませんでした: ${errorMessage(e)}`);
+    }
+  }
+
   // 右クリックメニュー（サイドパネルのツリーと全体図で共通）
   let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
   function openMenu(id: string, x: number, y: number) {
@@ -306,7 +326,18 @@
           disabled: !n.fields || !parentOk,
         },
         {
-          label: "CLAUDE.md 用にコピー",
+          label: "YAMLをまとめてコピー（祖先〜子孫）",
+          disabled: !n.fields,
+          title: "祖先・この目的・子孫のYAMLを、ファイルの内容のまま1つのテキストにしてコピーします",
+          action: () => copyYaml(id),
+        },
+        {
+          label: focusNode ? "表示中の範囲のYAMLをすべてコピー" : "全体のYAMLをすべてコピー",
+          title: "ツリーに表示中の目的すべてのYAMLを、親から子の順にまとめてコピーします",
+          action: () => copyYaml(null),
+        },
+        {
+          label: "CLAUDE.md 用にコピー（参照）",
           disabled: !n.fields,
           action: async () => {
             try {
@@ -544,6 +575,7 @@
             onCreateChild={(p) => startCreate(p)}
             onDirtyChange={(d) => (editorDirty = d)}
             onDraftChange={(d) => (pendingDraft = d)}
+            onCopyYaml={copyYaml}
             onToast={showToast}
             onReload={reload}
           />

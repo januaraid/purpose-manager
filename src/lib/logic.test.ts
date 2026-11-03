@@ -5,6 +5,7 @@ import {
   buildTree,
   canHaveChild,
   descendants,
+  exportOrder,
   treeIndent,
   layoutTree,
   folderName,
@@ -174,6 +175,20 @@ describe("zoom", () => {
     expect(clampZoom("x")).toBe(1);
     expect(clampZoom(9)).toBe(2);
     expect(clampZoom(0.1)).toBe(0.8);
+  });
+});
+
+describe("exportOrder", () => {
+  const model = buildTree(snap);
+  it("lists ancestors, the node and its visible descendants", () => {
+    expect(exportOrder(model, "a", model.roots, false)).toEqual(["root", "a", "a1"]);
+    // 選んだ目的の子孫はツリーと同じ見え方（アーカイブ済みの目的だけを隠す）
+    expect(exportOrder(model, "old", model.roots, false)).toEqual(["root", "old", "old1"]);
+  });
+  it("lists the whole tree parent-first and skips broken files", () => {
+    expect(exportOrder(model, null, ["root"], true)).toEqual(["root", "a", "a1", "old", "old1"]);
+    expect(exportOrder(model, null, ["root"], false)).toEqual(["root", "a", "a1"]);
+    expect(exportOrder(model, "broken", model.roots, true)).toEqual([]);
   });
 });
 

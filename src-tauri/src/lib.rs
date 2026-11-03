@@ -84,6 +84,11 @@ fn claude_md_snippet(root: String, id: String) -> String {
     purpose_core::harness::claude_md_snippet(Path::new(&root), &id)
 }
 
+#[tauri::command(async)]
+fn concat_yaml(root: String, ids: Vec<String>, title: String) -> Result<String, String> {
+    purpose_core::harness::concat_yaml(Path::new(&root), &ids, &title)
+}
+
 /// Workspaceの外部変更を監視し、`workspace-changed` イベントで知らせる。
 /// 自分の保存による変更もイベントになるが、GUI側でハッシュを比べて区別する。
 #[tauri::command(async)]
@@ -127,6 +132,7 @@ pub fn run() {
             save_purpose,
             delete_purpose,
             claude_md_snippet,
+            concat_yaml,
             watch_workspace,
         ])
         .run(tauri::generate_context!())

@@ -11,6 +11,7 @@ export const api = {
   deletePurpose: (root: string, id: string, expectedHash: string) =>
     invoke<void>("delete_purpose", { root, id, expectedHash }),
   claudeMdSnippet: (root: string, id: string) => invoke<string>("claude_md_snippet", { root, id }),
+  concatYaml: (root: string, ids: string[], title: string) => invoke<string>("concat_yaml", { root, ids, title }),
   watchWorkspace: (root: string) => invoke<void>("watch_workspace", { root }),
   onWorkspaceChanged: (handler: (root: string) => void): Promise<UnlistenFn> =>
     listen<string>("workspace-changed", (e) => handler(e.payload)),

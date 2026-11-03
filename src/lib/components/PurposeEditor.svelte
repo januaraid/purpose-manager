@@ -29,6 +29,7 @@
     onCreateChild,
     onDirtyChange,
     onDraftChange,
+    onCopyYaml,
     onToast,
     onReload,
   }: {
@@ -49,6 +50,8 @@
     onDirtyChange: (dirty: boolean) => void;
     /** 新規作成中の親と表示名（ツリーに仮の行を出すため）。 */
     onDraftChange?: (d: { parent: string | null; name: string }) => void;
+    /** 祖先〜この目的〜子孫のYAMLをまとめてコピーする。 */
+    onCopyYaml?: (id: string) => void;
     onToast: (msg: string) => void;
     onReload: () => void;
   } = $props();
@@ -265,6 +268,11 @@
       {#if node}
         <div class="actions">
           <button onclick={copySnippet} title="選択中の目的を参照する指示を、CLAUDE.md に貼り付ける形でコピーします">CLAUDE.md 用にコピー</button>
+          <button
+            onclick={() => onCopyYaml?.(node.id)}
+            disabled={!node.fields}
+            title="祖先・この目的・子孫のYAMLを、ファイルの内容のまま1つのテキストにしてコピーします（AIへの相談用）"
+          >YAMLをまとめてコピー</button>
           <button onclick={() => onCreateChild(node.id)} disabled={!node.fields}>子目的を追加</button>
           <button
             class="danger"
