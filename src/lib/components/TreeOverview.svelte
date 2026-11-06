@@ -138,21 +138,27 @@
       onpointercancel={onPointerUp}
       role="presentation"
     >
-      <svg width={width * zoom} height={height * zoom} viewBox="0 0 {width} {height}" role="tree" aria-label="目的ツリーの全体図">
-        <g class="edges">
+      <!-- foreignObject は WebKit（macOS）で拡大縮小・配置が崩れるため、線だけをSVGで描き、
+           ノードは通常のHTMLとして重ね、全体を CSS の transform で拡大縮小する -->
+      <div class="stage" style:width="{width * zoom}px" style:height="{height * zoom}px">
+      <div class="plane" style:width="{width}px" style:height="{height}px" style:transform="scale({zoom})" role="tree" aria-label="目的ツリーの全体図">
+        <svg class="edges" width={width} height={height} viewBox="0 0 {width} {height}" aria-hidden="true">
           {#each layout.edges as e (e.from + ">" + e.to)}
             {@const child = model.byId.get(e.to)}
             <path d={edgePath(e.from, e.to)} class:inactive={child?.effective !== "active"} />
           {/each}
-        </g>
+        </svg>
         {#each layout.nodes as n (n.id)}
           {@const node = model.byId.get(n.id)}
           {@const p = pos.get(n.id)}
           {#if node && p}
             {@const sev = worstSeverity(node.diagnostics.filter((d) => d.severity !== "info"))}
-            <foreignObject x={p.x} y={p.y} width={NODE_W} height={NODE_H}>
               <div
                 class="cell"
+                style:left="{p.x}px"
+                style:top="{p.y}px"
+                style:width="{NODE_W}px"
+                style:height="{NODE_H}px"
                 role="presentation"
                 oncontextmenu={(e) => {
                   e.preventDefault();
@@ -187,10 +193,10 @@
                 </button>
               {/if}
               </div>
-            </foreignObject>
           {/if}
         {/each}
-      </svg>
+      </div>
+      </div>
     </div>
   {/if}
 </div>
@@ -236,8 +242,22 @@
   .canvas:active {
     cursor: grabbing;
   }
-  svg {
+  .stage {
+    position: relative;
+    overflow: hidden;
+  }
+  .plane {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+  }
+  svg.edges {
+    position: absolute;
+    top: 0;
+    left: 0;
     display: block;
+    overflow: visible;
   }
   .edges path {
     fill: none;
@@ -250,9 +270,7 @@
     stroke-dasharray: 4 3;
   }
   .cell {
-    position: relative;
-    width: 100%;
-    height: 100%;
+    position: absolute;
   }
   .add {
     position: absolute;
