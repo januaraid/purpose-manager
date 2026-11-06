@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PurposeText, SaveOutcome, SaveRequest, Settings, Snapshot } from "./types";
+import type { PurposeFields, PurposeText, SaveOutcome, SaveRequest, Settings, Snapshot } from "./types";
 
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
@@ -11,6 +11,8 @@ export const api = {
   readPurposeYaml: (root: string, id: string) => invoke<PurposeText>("read_purpose_yaml", { root, id }),
   savePurposeYaml: (root: string, id: string, text: string, expectedHash: string) =>
     invoke<SaveOutcome>("save_purpose_yaml", { root, id, text, expectedHash }),
+  createPurposeYaml: (root: string, text: string) => invoke<SaveOutcome>("create_purpose_yaml", { root, text }),
+  purposeYamlTemplate: (fields: PurposeFields) => invoke<string>("purpose_yaml_template", { fields }),
   deletePurpose: (root: string, id: string, expectedHash: string) =>
     invoke<void>("delete_purpose", { root, id, expectedHash }),
   claudeMdSnippet: (root: string, id: string) => invoke<string>("claude_md_snippet", { root, id }),

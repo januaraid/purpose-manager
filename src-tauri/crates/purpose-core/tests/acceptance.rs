@@ -606,3 +606,58 @@ fn yaml_text_rejects_path_like_ids() {
     assert!(read_purpose_text(dir.path(), "../workspace").is_err());
     assert!(save_purpose_text(dir.path(), "a/b", "x", "h").is_err());
 }
+
+#[test]
+fn yaml_text_create_uses_id_as_file_name() {
+    let dir = sample_copy();
+    let r = dir.path();
+    let text = format!("# 新しい目的\n{}", purpose_yaml("acme-new", Some("acme-jobs"), "active"));
+    let out = create_purpose_text(r, &text).unwrap();
+    assert_eq!(out.id, "acme-new");
+    assert_eq!(fs::read_to_string(purpose_path(r, "acme-new")).unwrap(), text);
+    let snap = load(r, None).unwrap();
+    assert_eq!(snap.node("acme-new").unwrap().hash, out.hash);
+    assert!(!snap.node("acme-new").unwrap().has_errors());
+}
+
+#[test]
+fn yaml_text_create_rejects_bad_input() {
+    let dir = sample_copy();
+    let r = dir.path();
+    let before = fs::read_dir(r.join("purposes")).unwrap().count();
+    assert!(matches!(
+        create_purpose_text(r, &purpose_yaml("acme-jobs", Some("acme-corp"), "active")),
+        Err(SaveError::AlreadyExists)
+    ));
+    for bad in [
+        "name: [broken".to_string(),
+        "name: idなし\npurpose: x\n".to_string(),
+        purpose_yaml("Bad_ID", None, "active"),
+        purpose_yaml("orphan", Some("missing-parent"), "active"),
+        "id: no-name\nparent: null\nstatus: active\n".to_string(),
+    ] {
+        assert!(
+            matches!(create_purpose_text(r, &bad), Err(SaveError::Validation { .. })),
+            "{bad}"
+        );
+    }
+    assert_eq!(fs::read_dir(r.join("purposes")).unwrap().count(), before);
+}
+
+#[test]
+fn yaml_text_template_round_trips() {
+    let fields = PurposeFields {
+        id: "x".into(),
+        parent: Some("p".into()),
+        name: "名前".into(),
+        purpose: "目的".into(),
+        rationale: Some("".into()),
+        principles: Some(vec!["原則".into(), "".into()]),
+        status: Status::Active,
+        valid_from: None,
+        valid_until: None,
+        review_at: None,
+    };
+    let text = purpose_text_template(fields).unwrap();
+    assert!(text.contains("id: x\n") && text.contains("parent: p\n") && !text.contains("rationale"));
+}

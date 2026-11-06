@@ -83,19 +83,28 @@
   });
   const editable = $derived(isNew || node?.fields != null);
 
-  // 編集の方法：フォームか、YAMLの直接編集か（端末ローカルに覚える）。新規作成はフォームだけ。
+  // 編集の方法：フォームか、YAMLの直接編集か（端末ローカルに覚える）。
   const MODE_KEY = "purpose-manager.editorMode";
-  let mode = $state<"form" | "yaml">(
-    untrack(() => (node && localStorage.getItem(MODE_KEY) === "yaml" ? "yaml" : "form")),
-  );
+  let mode = $state<"form" | "yaml">(untrack(() => (localStorage.getItem(MODE_KEY) === "yaml" ? "yaml" : "form")));
   /** 編集中のYAML。 */
   let yamlText = $state("");
-  /** 読み込んだ（または保存した）時点のYAML。`null` は読み込み中。 */
+  /** 読み込んだ（または保存した）時点のYAML。新規作成ではひな形。`null` は読み込み中。 */
   let yamlBase = $state<string | null>(null);
   let yamlHash = $state<string | null>(null);
   const yamlDirty = $derived(mode === "yaml" && yamlBase !== null && yamlText !== yamlBase);
   const formDirty = $derived(editable && (isNew ? hasInput(draft) : isDirty(draft, baseFields)));
-  const dirty = $derived(mode === "yaml" ? yamlDirty : formDirty);
+  // 新規作成のYAMLは、フォームに入力した内容から作ったひな形も「未保存」として扱う
+  const dirty = $derived(mode === "yaml" ? yamlDirty || (isNew && hasInput(draft)) : formDirty);
+  /**
+   * 切り替えてよいか。編集中の内容を失わないよう、未保存の変更があるときは切り替えない。
+   * ただし新規作成では、フォームの内容はYAMLのひな形に引き継ぐので、YAMLへはいつでも切り替えられる。
+   * YAMLからフォームへは、ひな形を書き換えていなければ戻れる（フォームの内容はそのまま残っている）。
+   */
+  function canSwitch(m: "form" | "yaml"): boolean {
+    if (m === mode) return false;
+    if (isNew) return m === "yaml" || !yamlDirty;
+    return !dirty;
+  }
   untrack(() => {
     if (mode === "yaml") loadYaml();
   });
@@ -229,7 +238,10 @@
   }
 
   async function loadYaml() {
-    if (!node) return;
+    if (!node) {
+      await loadTemplate();
+      return;
+    }
     const id = node.id;
     try {
       const t = await api.readPurposeYaml(root, id);
@@ -245,7 +257,28 @@
     }
   }
 
+  /** 新規作成：フォームに入力済みの内容から、YAMLのひな形を作る。 */
+  async function loadTemplate() {
+    const parent = draft.parent === "" ? null : draft.parent;
+    const id = draft.id.trim() || suggestId(draft.name, parent, new Set(model.byId.keys()), idSuffix);
+    try {
+      const text = await api.purposeYamlTemplate(fromDraft({ ...draft, id }));
+      if (mode !== "yaml") return;
+      yamlText = text;
+      yamlBase = text;
+      yamlHash = null;
+      saveDiagnostics = [];
+      saveMessage = null;
+    } catch (e) {
+      saveMessage = `YAMLのひな形を作れませんでした: ${errorMessage(e)}`;
+    }
+  }
+
   async function saveYaml() {
+    if (isNew) {
+      await createYaml();
+      return;
+    }
     if (!node || !yamlDirty || saving || yamlHash === null) return;
     saving = true;
     saveDiagnostics = [];
@@ -260,6 +293,22 @@
       yamlHash = out.hash;
       externalChange = false;
       onToast("保存しました");
+      onSaved(out.id);
+    } catch (e) {
+      showSaveError(e);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function createYaml() {
+    if (yamlBase === null || saving) return;
+    saving = true;
+    saveDiagnostics = [];
+    saveMessage = null;
+    try {
+      const out = await api.createPurposeYaml(root, yamlText);
+      onToast("目的を作成しました");
       onSaved(out.id);
     } catch (e) {
       showSaveError(e);
@@ -294,7 +343,7 @@
   }
 
   function setMode(m: "form" | "yaml") {
-    if (m === mode || dirty || !node) return;
+    if (!canSwitch(m)) return;
     mode = m;
     try {
       localStorage.setItem(MODE_KEY, m);
@@ -307,13 +356,13 @@
     if (m === "yaml") {
       yamlBase = null;
       loadYaml();
-    } else {
+    } else if (node) {
       reset(node);
     }
   }
 
   function discard() {
-    if (mode === "yaml") {
+    if (mode === "yaml" && !isNew) {
       if (yamlBase !== null) yamlText = yamlBase;
       saveDiagnostics = [];
       saveMessage = null;
@@ -408,16 +457,20 @@
 
     {#if node}
       <p class="path mono muted" title={node.path}>{node.path}</p>
-      <div
-        class="modes"
-        role="group"
-        aria-label="編集の方法"
-        title={dirty ? "未保存の変更を保存するか破棄してから切り替えてください" : undefined}
-      >
-        <button class:on={mode === "form"} aria-pressed={mode === "form"} disabled={dirty && mode !== "form"} onclick={() => setMode("form")}>フォーム</button>
-        <button class:on={mode === "yaml"} aria-pressed={mode === "yaml"} disabled={dirty && mode !== "yaml"} onclick={() => setMode("yaml")}>YAML</button>
-      </div>
     {/if}
+    <div
+      class="modes"
+      role="group"
+      aria-label="編集の方法"
+      title={!canSwitch(mode === "form" ? "yaml" : "form")
+        ? isNew
+          ? "YAMLを書き換えたあとはフォームに戻れません。戻すにはキャンセルしてやり直してください"
+          : "未保存の変更を保存するか破棄してから切り替えてください"
+        : undefined}
+    >
+      <button class:on={mode === "form"} aria-pressed={mode === "form"} disabled={mode !== "form" && !canSwitch("form")} onclick={() => setMode("form")}>フォーム</button>
+      <button class:on={mode === "yaml"} aria-pressed={mode === "yaml"} disabled={mode !== "yaml" && !canSwitch("yaml")} onclick={() => setMode("yaml")}>YAML</button>
+    </div>
 
     {#if externalChange}
       <div class="banner warning" role="alert">
@@ -433,10 +486,10 @@
     {/if}
     <DiagnosticList items={saveDiagnostics} />
 
-    {#if mode === "yaml" && node}
+    {#if mode === "yaml"}
       <div class="fields">
         <div class="field">
-          <span class="lbl"><label for="yaml-text">YAML</label> <em class="mono">{node.file_name}</em></span>
+          <span class="lbl"><label for="yaml-text">YAML</label> <em class="mono">{node ? node.file_name : "<id>.yaml"}</em></span>
           {#if yamlBase !== null}
             <textarea
               id="yaml-text"
@@ -453,14 +506,23 @@
           {:else}
             <p class="muted">読み込み中…</p>
           {/if}
-          <span class="hint">ファイルの内容をそのまま編集します。コメントや書式もそのまま保存されます。保存の前に、フォームと同じ検証をします。Tab で字下げ、Shift+Tab で字上げ（Esc のあとに Tab で次の項目へ移動）。</span>
+          <span class="hint">
+            {#if isNew}
+              フォームに入力した内容からひな形を作りました。<code>id</code> がファイル名になり、作成後は変更できません。
+            {:else}
+              ファイルの内容をそのまま編集します。
+            {/if}
+            コメントや書式もそのまま保存されます。保存の前に、フォームと同じ検証をします。Tab で字下げ、Shift+Tab で字上げ（Esc のあとに Tab で次の項目へ移動）。
+          </span>
         </div>
-        <DiagnosticList items={node.diagnostics} />
+        {#if node}<DiagnosticList items={node.diagnostics} />{/if}
       </div>
 
       <footer>
-        <button class="primary" onclick={saveYaml} disabled={!yamlDirty || saving}>{saving ? "保存中…" : "保存"}</button>
-        <button onclick={discard} disabled={!yamlDirty}>変更を破棄</button>
+        <button class="primary" onclick={saveYaml} disabled={saving || yamlBase === null || (!isNew && !yamlDirty)}>
+          {saving ? "保存中…" : isNew ? "作成" : "保存"}
+        </button>
+        <button onclick={discard} disabled={!isNew && !yamlDirty}>{isNew ? "キャンセル" : "変更を破棄"}</button>
         <span class="muted kbd">Ctrl+S で保存</span>
       </footer>
     {:else if !editable && node}

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use notify_debouncer_mini::notify::RecursiveMode;
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
-use purpose_core::{PurposeText, SaveError, SaveOutcome, SaveRequest, Snapshot};
+use purpose_core::{PurposeFields, PurposeText, SaveError, SaveOutcome, SaveRequest, Snapshot};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -85,6 +85,16 @@ fn save_purpose_yaml(root: String, id: String, text: String, expected_hash: Stri
 }
 
 #[tauri::command(async)]
+fn create_purpose_yaml(root: String, text: String) -> Result<SaveOutcome, SaveError> {
+    purpose_core::create_purpose_text(Path::new(&root), &text)
+}
+
+#[tauri::command(async)]
+fn purpose_yaml_template(fields: PurposeFields) -> Result<String, SaveError> {
+    purpose_core::purpose_text_template(fields)
+}
+
+#[tauri::command(async)]
 fn delete_purpose(root: String, id: String, expected_hash: String) -> Result<(), SaveError> {
     purpose_core::delete_purpose(Path::new(&root), &id, &expected_hash)
 }
@@ -142,6 +152,8 @@ pub fn run() {
             save_purpose,
             read_purpose_yaml,
             save_purpose_yaml,
+            create_purpose_yaml,
+            purpose_yaml_template,
             delete_purpose,
             claude_md_snippet,
             concat_yaml,
