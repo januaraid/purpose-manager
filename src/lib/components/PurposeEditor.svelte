@@ -2,6 +2,7 @@
   import { untrack, type Snippet } from "svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
+  import { autoHeight } from "$lib/autoHeight";
   import { fromDraft, idProblem, isDirty, newDraft, randomSuffix, suggestId, toDraft, type Draft } from "$lib/draft";
   import {
     ancestorsIfParent,
@@ -350,18 +351,18 @@
         <!-- ヘルプのボタンを置くため、label 要素で囲まない（押したときに入力欄へ移らないように） -->
         <div class="field">
           <span class="lbl"><label for="purpose-text">目的</label> <em>必須</em> <PurposeGuide /></span>
-          <textarea id="purpose-text" bind:value={draft.purpose} rows="3" placeholder="この目的が実現したい状態。親の目的にどう貢献するか"></textarea>
+          <textarea id="purpose-text" use:autoHeight={draft.purpose} bind:value={draft.purpose} rows="3" placeholder="この目的が実現したい状態。親の目的にどう貢献するか"></textarea>
         </div>
 
         <label class="field">
           <span class="lbl">判断原則</span>
-          <textarea bind:value={draft.principles} rows="3" placeholder="1行に1つ"></textarea>
+          <textarea use:autoHeight={draft.principles} bind:value={draft.principles} rows="3" placeholder="1行に1つ"></textarea>
           <span class="hint">1行に1つ。子目的からも参照されます。</span>
         </label>
 
         <label class="field">
           <span class="lbl">背景</span>
-          <textarea bind:value={draft.rationale} rows="3" placeholder="任意。なぜこの目的を設定したか"></textarea>
+          <textarea use:autoHeight={draft.rationale} bind:value={draft.rationale} rows="3" placeholder="任意。なぜこの目的を設定したか"></textarea>
           <span class="hint">子目的には引き継がれません。会議記録・作業履歴・認証情報は書かないでください。</span>
         </label>
 
