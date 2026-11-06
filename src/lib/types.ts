@@ -63,6 +63,12 @@ export interface SaveRequest {
   allow_comment_loss: boolean;
 }
 
+/** YAMLを直接編集するために読み込んだファイルの内容。 */
+export interface PurposeText {
+  text: string;
+  hash: string;
+}
+
 export interface SaveOutcome {
   id: string;
   hash: string;

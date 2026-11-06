@@ -172,6 +172,23 @@ pub fn save_purpose(root: &Path, req: SaveRequest) -> Result<SaveOutcome, SaveEr
     }
 
     // 3. 保存後のWorkspaceで、このノードにエラーが出ないか確認する
+    check_in_workspace(root, &id, &text)?;
+
+    // 4. 書き込む直前にもう一度、外部の変更がないか確認する
+    let now = current_hash(&path)?;
+    if now != req.expected_hash {
+        return Err(SaveError::Conflict { current_hash: now });
+    }
+    atomic_write(&path, text.as_bytes())?;
+    Ok(SaveOutcome {
+        id,
+        hash: hash_bytes(text.as_bytes()),
+    })
+}
+
+/// 保存後のWorkspaceを想定して検証し、このノードにエラーが出るなら保存させない。
+fn check_in_workspace(root: &Path, id: &str, text: &str) -> Result<(), SaveError> {
+    let path = purpose_path(root, id);
     let (mut entries, _) = read_entries(root).map_err(|e| SaveError::Workspace {
         message: e.to_string(),
     })?;
@@ -192,20 +209,83 @@ pub fn save_purpose(root: &Path, req: SaveRequest) -> Result<SaveOutcome, SaveEr
                 .collect()
         })
         .unwrap_or_default();
-    if !errors.is_empty() {
-        return Err(SaveError::Validation {
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(SaveError::Validation {
             diagnostics: errors,
+        })
+    }
+}
+
+/// YAMLを直接編集するために読み込んだファイルの内容。
+#[derive(Debug, Clone, Serialize)]
+pub struct PurposeText {
+    pub text: String,
+    pub hash: String,
+}
+
+/// ファイル名として安全なID（ノードのキー）か。壊れたファイル名のノードも読めるよう、IDの規則より緩くする。
+fn safe_stem(id: &str) -> Result<(), SaveError> {
+    if id.is_empty() || id.contains(['/', '\\']) || id.contains("..") {
+        return Err(SaveError::Io {
+            message: format!("ファイル名として使えないIDです: {id}"),
+        });
+    }
+    Ok(())
+}
+
+/// 目的ファイルの内容をそのまま読み込む（BOMは除き、改行はLFにそろえる）。
+pub fn read_purpose_text(root: &Path, id: &str) -> Result<PurposeText, SaveError> {
+    safe_stem(id)?;
+    let bytes = fs::read(purpose_path(root, id))?;
+    let text = crate::parse::decode(&bytes).ok_or_else(|| SaveError::Io {
+        message: "UTF-8として読み込めないため、YAMLを直接編集できません".into(),
+    })?;
+    Ok(PurposeText {
+        text,
+        hash: hash_bytes(&bytes),
+    })
+}
+
+/// 利用者が直接編集したYAMLを、そのまま（コメントや書式も含めて）保存する。
+/// フォームからの保存と同じく、検証・競合検知・安全な置き換えをする。
+pub fn save_purpose_text(
+    root: &Path,
+    id: &str,
+    text: &str,
+    expected_hash: &str,
+) -> Result<SaveOutcome, SaveError> {
+    safe_stem(id)?;
+    let path = purpose_path(root, id);
+    let mut text = text.replace("\r\n", "\n");
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+
+    // 1. ファイル単位の検証（構文・必須項目・IDとファイル名の一致など）
+    let parsed = parse_purpose(&text, id);
+    if crate::diagnostics::has_errors(&parsed.diagnostics) {
+        return Err(SaveError::Validation {
+            diagnostics: parsed
+                .diagnostics
+                .into_iter()
+                .filter(|d| d.severity == Severity::Error)
+                .collect(),
         });
     }
 
-    // 4. 書き込む直前にもう一度、外部の変更がないか確認する
+    // 2. 保存後のWorkspaceで、このノードにエラーが出ないか確認する
+    check_in_workspace(root, id, &text)?;
+
+    // 3. 書き込む直前に、外部の変更がないか確認する
     let now = current_hash(&path)?;
-    if now != req.expected_hash {
+    if now.as_deref() != Some(expected_hash) {
         return Err(SaveError::Conflict { current_hash: now });
     }
     atomic_write(&path, text.as_bytes())?;
     Ok(SaveOutcome {
-        id,
+        id: id.to_string(),
         hash: hash_bytes(text.as_bytes()),
     })
 }
