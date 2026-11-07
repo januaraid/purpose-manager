@@ -85,7 +85,14 @@
 
   // 編集の方法：フォームか、YAMLの直接編集か（端末ローカルに覚える）。
   const MODE_KEY = "purpose-manager.editorMode";
-  let mode = $state<"form" | "yaml">(untrack(() => (localStorage.getItem(MODE_KEY) === "yaml" ? "yaml" : "form")));
+  function storedMode(): "form" | "yaml" {
+    try {
+      return localStorage.getItem(MODE_KEY) === "yaml" ? "yaml" : "form";
+    } catch {
+      return "form";
+    }
+  }
+  let mode = $state<"form" | "yaml">(storedMode());
   /** 編集中のYAML。 */
   let yamlText = $state("");
   /** 読み込んだ（または保存した）時点のYAML。新規作成ではひな形。`null` は読み込み中。 */

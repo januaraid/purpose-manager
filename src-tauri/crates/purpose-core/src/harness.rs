@@ -16,7 +16,10 @@ pub fn concat_yaml(root: &Path, ids: &[String], title: &str) -> Result<String, S
         let path = purpose_path(root, id);
         let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let text = String::from_utf8_lossy(&bytes);
-        let text = text.strip_prefix('\u{feff}').unwrap_or(&text).replace("\r\n", "\n");
+        let text = text
+            .strip_prefix('\u{feff}')
+            .unwrap_or(&text)
+            .replace("\r\n", "\n");
         let body = text.trim_end_matches('\n');
         docs.push(format!("---\n# {PURPOSES_DIR}/{id}.yaml\n{body}\n"));
     }
@@ -67,7 +70,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("purposes");
         std::fs::create_dir(&p).unwrap();
-        std::fs::write(p.join("a.yaml"), "\u{feff}id: a\r\n# コメント\r\nname: A\r\n\r\n").unwrap();
+        std::fs::write(
+            p.join("a.yaml"),
+            "\u{feff}id: a\r\n# コメント\r\nname: A\r\n\r\n",
+        )
+        .unwrap();
         std::fs::write(p.join("b.yaml"), "id: b\nparent: a\n").unwrap();
         let s = concat_yaml(dir.path(), &["a".into(), "b".into()], "WS").unwrap();
         assert_eq!(

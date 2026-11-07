@@ -227,7 +227,8 @@ pub struct PurposeText {
 
 /// ファイル名として安全なID（ノードのキー）か。壊れたファイル名のノードも読めるよう、IDの規則より緩くする。
 fn safe_stem(id: &str) -> Result<(), SaveError> {
-    if id.is_empty() || id.contains(['/', '\\']) || id.contains("..") {
+    // ':' は Windows でドライブ指定（`C:x` は purposes の外を指す）や代替データストリームになるので除く
+    if id.is_empty() || id.contains(['/', '\\', ':']) || id.contains("..") {
         return Err(SaveError::Io {
             message: format!("ファイル名として使えないIDです: {id}"),
         });

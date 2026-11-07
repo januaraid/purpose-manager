@@ -58,9 +58,15 @@ enum LoadFailure {
 fn load_workspace(root: String, today: Option<String>) -> Result<Snapshot, LoadFailure> {
     use purpose_core::LoadError;
     purpose_core::load(Path::new(&root), today.as_deref()).map_err(|e| match e {
-        LoadError::NotFound(_) => LoadFailure::NotFound { message: e.to_string() },
-        LoadError::NotAWorkspace(_) => LoadFailure::NotAWorkspace { message: e.to_string() },
-        LoadError::Io(_) => LoadFailure::Io { message: e.to_string() },
+        LoadError::NotFound(_) => LoadFailure::NotFound {
+            message: e.to_string(),
+        },
+        LoadError::NotAWorkspace(_) => LoadFailure::NotAWorkspace {
+            message: e.to_string(),
+        },
+        LoadError::Io(_) => LoadFailure::Io {
+            message: e.to_string(),
+        },
     })
 }
 
@@ -80,7 +86,12 @@ fn read_purpose_yaml(root: String, id: String) -> Result<PurposeText, SaveError>
 }
 
 #[tauri::command(async)]
-fn save_purpose_yaml(root: String, id: String, text: String, expected_hash: String) -> Result<SaveOutcome, SaveError> {
+fn save_purpose_yaml(
+    root: String,
+    id: String,
+    text: String,
+    expected_hash: String,
+) -> Result<SaveOutcome, SaveError> {
     purpose_core::save_purpose_text(Path::new(&root), &id, &text, &expected_hash)
 }
 
@@ -112,28 +123,43 @@ fn concat_yaml(root: String, ids: Vec<String>, title: String) -> Result<String, 
 /// Workspaceの外部変更を監視し、`workspace-changed` イベントで知らせる。
 /// 自分の保存による変更もイベントになるが、GUI側でハッシュを比べて区別する。
 #[tauri::command(async)]
-fn watch_workspace(app: AppHandle, state: State<'_, WatchState>, root: String) -> Result<(), String> {
+fn watch_workspace(
+    app: AppHandle,
+    state: State<'_, WatchState>,
+    root: String,
+) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     *guard = None;
     let root_path = PathBuf::from(&root);
     let emit_root = root.clone();
     let handle = app.clone();
-    let mut debouncer = new_debouncer(Duration::from_millis(300), move |res: DebounceEventResult| {
-        let Ok(events) = res else { return };
-        let relevant = events.iter().any(|e| {
-            let name = e.path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            !name.ends_with(".tmp")
-        });
-        if relevant {
-            let _ = handle.emit("workspace-changed", emit_root.clone());
-        }
-    })
+    let mut debouncer = new_debouncer(
+        Duration::from_millis(300),
+        move |res: DebounceEventResult| {
+            let Ok(events) = res else { return };
+            let relevant = events.iter().any(|e| {
+                let name = e
+                    .path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                !name.ends_with(".tmp")
+            });
+            if relevant {
+                let _ = handle.emit("workspace-changed", emit_root.clone());
+            }
+        },
+    )
     .map_err(|e| e.to_string())?;
     let watcher = debouncer.watcher();
-    watcher.watch(&root_path, RecursiveMode::NonRecursive).map_err(|e| e.to_string())?;
+    watcher
+        .watch(&root_path, RecursiveMode::NonRecursive)
+        .map_err(|e| e.to_string())?;
     let purposes = purpose_core::workspace::purposes_dir(&root_path);
     if purposes.is_dir() {
-        watcher.watch(&purposes, RecursiveMode::NonRecursive).map_err(|e| e.to_string())?;
+        watcher
+            .watch(&purposes, RecursiveMode::NonRecursive)
+            .map_err(|e| e.to_string())?;
     }
     *guard = Some(debouncer);
     Ok(())
