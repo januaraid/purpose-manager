@@ -88,7 +88,11 @@
   <section class="minimap" aria-label="ツリー上の位置">
     <h2>位置</h2>
     <div class="box" bind:this={box} bind:clientWidth={boxWidth}>
-      <svg viewBox="0 0 {vbW} {vbH}" width={vbW * scale} height={vbH * scale} role="img" aria-label="目的ツリーの縮小図">
+      <!-- foreignObject は WebKit（macOS）で拡大縮小・配置が崩れるため、線だけをSVGで描き、
+           ノードは通常のHTMLとして重ね、全体を CSS の transform で縮小する -->
+      <div class="stage" style:width="{vbW * scale}px" style:height="{vbH * scale}px">
+      <div class="plane" style:width="{vbW}px" style:height="{vbH}px" style:transform="scale({scale})" role="img" aria-label="目的ツリーの縮小図">
+      <svg viewBox="0 0 {vbW} {vbH}" width={vbW} height={vbH} aria-hidden="true">
         {#each layout.edges as e (e.from + ">" + e.to)}
           <path d={edge(e.from, e.to)} class="edge" class:on={path.has(e.from) && path.has(e.to)} />
         {/each}
@@ -100,28 +104,36 @@
             class="edge on pending"
           />
         {/if}
+      </svg>
         {#each layout.nodes as n (n.id)}
           {@const node = model.byId.get(n.id)}
           {@const p = pos.get(n.id)}
           {#if node && p}
-            <foreignObject x={p.x} y={p.y} width={W} height={H}>
               <button
                 class="node"
+                style:left="{p.x}px"
+                style:top="{p.y}px"
+                style:width="{W}px"
+                style:height="{H}px"
                 class:path={path.has(n.id)}
                 class:current={focus === n.id && pendingParent === undefined}
                 class:inactive={node.effective !== "active"}
                 onclick={() => onOpen(n.id)}
                 title={displayName(node)}
               >{displayName(node)}</button>
-            </foreignObject>
           {/if}
         {/each}
         {#if pendingBox}
-          <foreignObject x={pendingBox.x} y={pendingBox.y} width={W} height={H}>
-            <div class="node pending">作成中</div>
-          </foreignObject>
+          <div
+            class="node pending"
+            style:left="{pendingBox.x}px"
+            style:top="{pendingBox.y}px"
+            style:width="{W}px"
+            style:height="{H}px"
+          >作成中</div>
         {/if}
-      </svg>
+      </div>
+      </div>
     </div>
   </section>
 {/if}
@@ -144,7 +156,20 @@
     overflow: auto;
     overscroll-behavior: contain;
   }
+  .stage {
+    position: relative;
+    overflow: hidden;
+  }
+  .plane {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+  }
   svg {
+    position: absolute;
+    top: 0;
+    left: 0;
     display: block;
   }
   .edge {
@@ -160,8 +185,7 @@
     stroke-dasharray: 4 3;
   }
   .node {
-    width: 100%;
-    height: 100%;
+    position: absolute;
     display: block;
     padding: 0 6px;
     font-size: 11px;

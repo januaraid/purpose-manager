@@ -2,6 +2,8 @@
   import { untrack, type Snippet } from "svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { api, errorMessage } from "$lib/api";
+  import { autoHeight } from "$lib/autoHeight";
+  import { indentEdit } from "$lib/indent";
   import { fromDraft, idProblem, isDirty, newDraft, randomSuffix, suggestId, toDraft, type Draft } from "$lib/draft";
   import {
     ancestorsIfParent,
@@ -80,17 +82,49 @@
     draft.id = name.trim() === "" ? "" : suggestId(name, parent, existing, idSuffix);
   });
   const editable = $derived(isNew || node?.fields != null);
-  const dirty = $derived(editable && (isNew ? hasInput(draft) : isDirty(draft, baseFields)));
+
+  // 編集の方法：フォームか、YAMLの直接編集か（端末ローカルに覚える）。
+  const MODE_KEY = "purpose-manager.editorMode";
+  let mode = $state<"form" | "yaml">(untrack(() => (localStorage.getItem(MODE_KEY) === "yaml" ? "yaml" : "form")));
+  /** 編集中のYAML。 */
+  let yamlText = $state("");
+  /** 読み込んだ（または保存した）時点のYAML。新規作成ではひな形。`null` は読み込み中。 */
+  let yamlBase = $state<string | null>(null);
+  let yamlHash = $state<string | null>(null);
+  const yamlDirty = $derived(mode === "yaml" && yamlBase !== null && yamlText !== yamlBase);
+  const formDirty = $derived(editable && (isNew ? hasInput(draft) : isDirty(draft, baseFields)));
+  // 新規作成のYAMLは、フォームに入力した内容から作ったひな形も「未保存」として扱う
+  const dirty = $derived(mode === "yaml" ? yamlDirty || (isNew && hasInput(draft)) : formDirty);
+  /**
+   * 切り替えてよいか。編集中の内容を失わないよう、未保存の変更があるときは切り替えない。
+   * ただし新規作成では、フォームの内容はYAMLのひな形に引き継ぐので、YAMLへはいつでも切り替えられる。
+   * YAMLからフォームへは、ひな形を書き換えていなければ戻れる（フォームの内容はそのまま残っている）。
+   */
+  function canSwitch(m: "form" | "yaml"): boolean {
+    if (m === mode) return false;
+    if (isNew) return m === "yaml" || !yamlDirty;
+    return !dirty;
+  }
+  untrack(() => {
+    if (mode === "yaml") loadYaml();
+  });
   $effect(() => onDirtyChange(dirty));
   $effect(() => {
     if (isNew) onDraftChange?.({ parent: draft.parent === "" ? null : draft.parent, name: draft.name });
   });
 
-  // 外部変更：自分の保存なら baseHash と一致するので何もしない。
+  // 外部変更：自分の保存なら baseHash（YAMLの直接編集では yamlHash）と一致するので何もしない。
   $effect(() => {
     const current = node;
-    if (!current || current.hash === untrack(() => baseHash)) return;
+    if (!current) return;
     untrack(() => {
+      if (mode === "yaml") {
+        if (yamlBase === null || current.hash === yamlHash) return;
+        if (!yamlDirty) loadYaml();
+        else externalChange = true;
+        return;
+      }
+      if (current.hash === baseHash) return;
       if (!isDirty(draft, baseFields) || !current.fields) {
         reset(current);
       } else {
@@ -132,7 +166,7 @@
       : null,
   );
   const requiredMissing = $derived(draft.name.trim() === "" || draft.purpose.trim() === "");
-  const canSave = $derived(editable && dirty && !saving && !idError && !idTaken && !periodError && !requiredMissing);
+  const canSave = $derived(editable && formDirty && !saving && !idError && !idTaken && !periodError && !requiredMissing);
 
   const effectiveLabel = {
     active: "有効",
@@ -174,32 +208,166 @@
       onToast(isNew ? "目的を作成しました" : "保存しました");
       onSaved(out.id);
     } catch (e) {
-      const err = e as SaveError;
-      switch (err?.kind) {
-        case "validation":
-          saveDiagnostics = err.diagnostics;
-          saveMessage = "入力内容に問題があるため保存していません。";
-          break;
-        case "conflict":
-          externalChange = true;
-          saveMessage = "編集中にファイルが外部で変更されたため、保存していません。";
-          break;
-        case "already_exists":
-          saveMessage = "同じIDの目的がすでにあります。別のIDにしてください。";
-          break;
-        case "not_editable":
-          saveDiagnostics = err.diagnostics;
-          saveMessage = "ファイルにエラーがあるため、GUIでは保存できません。";
-          break;
-        default:
-          saveMessage = `保存できませんでした: ${errorMessage(e)}`;
-      }
+      showSaveError(e);
     } finally {
       saving = false;
     }
   }
 
+  function showSaveError(e: unknown) {
+    const err = e as SaveError;
+    switch (err?.kind) {
+      case "validation":
+        saveDiagnostics = err.diagnostics;
+        saveMessage = mode === "yaml" ? "YAMLに問題があるため保存していません。" : "入力内容に問題があるため保存していません。";
+        break;
+      case "conflict":
+        externalChange = true;
+        saveMessage = "編集中にファイルが外部で変更されたため、保存していません。";
+        break;
+      case "already_exists":
+        saveMessage = "同じIDの目的がすでにあります。別のIDにしてください。";
+        break;
+      case "not_editable":
+        saveDiagnostics = err.diagnostics;
+        saveMessage = "ファイルにエラーがあるため、GUIでは保存できません。";
+        break;
+      default:
+        saveMessage = `保存できませんでした: ${errorMessage(e)}`;
+    }
+  }
+
+  async function loadYaml() {
+    if (!node) {
+      await loadTemplate();
+      return;
+    }
+    const id = node.id;
+    try {
+      const t = await api.readPurposeYaml(root, id);
+      if (node?.id !== id || mode !== "yaml") return;
+      yamlText = t.text;
+      yamlBase = t.text;
+      yamlHash = t.hash;
+      externalChange = false;
+      saveDiagnostics = [];
+      saveMessage = null;
+    } catch (e) {
+      saveMessage = `YAMLを読み込めませんでした: ${errorMessage(e)}`;
+    }
+  }
+
+  /** 新規作成：フォームに入力済みの内容から、YAMLのひな形を作る。 */
+  async function loadTemplate() {
+    const parent = draft.parent === "" ? null : draft.parent;
+    const id = draft.id.trim() || suggestId(draft.name, parent, new Set(model.byId.keys()), idSuffix);
+    try {
+      const text = await api.purposeYamlTemplate(fromDraft({ ...draft, id }));
+      if (mode !== "yaml") return;
+      yamlText = text;
+      yamlBase = text;
+      yamlHash = null;
+      saveDiagnostics = [];
+      saveMessage = null;
+    } catch (e) {
+      saveMessage = `YAMLのひな形を作れませんでした: ${errorMessage(e)}`;
+    }
+  }
+
+  async function saveYaml() {
+    if (isNew) {
+      await createYaml();
+      return;
+    }
+    if (!node || !yamlDirty || saving || yamlHash === null) return;
+    saving = true;
+    saveDiagnostics = [];
+    saveMessage = null;
+    const text = yamlText;
+    try {
+      const out = await api.savePurposeYaml(root, node.id, text, yamlHash);
+      // 保存時に末尾の改行をそろえるので、画面の内容も合わせる（保存中に入力された分は残す）
+      const saved = text.endsWith("\n") ? text : text + "\n";
+      if (yamlText === text) yamlText = saved;
+      yamlBase = saved;
+      yamlHash = out.hash;
+      externalChange = false;
+      onToast("保存しました");
+      onSaved(out.id);
+    } catch (e) {
+      showSaveError(e);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function createYaml() {
+    if (yamlBase === null || saving) return;
+    saving = true;
+    saveDiagnostics = [];
+    saveMessage = null;
+    try {
+      const out = await api.createPurposeYaml(root, yamlText);
+      onToast("目的を作成しました");
+      onSaved(out.id);
+    } catch (e) {
+      showSaveError(e);
+    } finally {
+      saving = false;
+    }
+  }
+
+  // Tab で字下げ、Shift+Tab で字上げ。キーボードだけで抜けられるよう、Esc の直後の Tab は通常どおり移動する。
+  let tabMovesFocus = false;
+  function onYamlKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      tabMovesFocus = true;
+      return;
+    }
+    if (e.key !== "Tab") {
+      if (e.key !== "Shift") tabMovesFocus = false;
+      return;
+    }
+    if (tabMovesFocus || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+    e.preventDefault();
+    const el = e.currentTarget as HTMLTextAreaElement;
+    const edit = indentEdit(el.value, el.selectionStart, el.selectionEnd, e.shiftKey);
+    if (!edit) return;
+    el.setSelectionRange(edit.from, edit.to);
+    // insertText なら Cmd+Z で元に戻せる。使えない環境では直接置き換える。
+    if (!document.execCommand("insertText", false, edit.insert)) {
+      el.setRangeText(edit.insert, edit.from, edit.to, "end");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    el.setSelectionRange(edit.selStart, edit.selEnd);
+  }
+
+  function setMode(m: "form" | "yaml") {
+    if (!canSwitch(m)) return;
+    mode = m;
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // 覚えられなくても切り替えはできる
+    }
+    externalChange = false;
+    saveDiagnostics = [];
+    saveMessage = null;
+    if (m === "yaml") {
+      yamlBase = null;
+      loadYaml();
+    } else if (node) {
+      reset(node);
+    }
+  }
+
   function discard() {
+    if (mode === "yaml" && !isNew) {
+      if (yamlBase !== null) yamlText = yamlBase;
+      saveDiagnostics = [];
+      saveMessage = null;
+      return;
+    }
     if (isNew) {
       onCancel();
       return;
@@ -208,7 +376,8 @@
   }
 
   function reloadFromDisk() {
-    if (node) reset(node);
+    if (mode === "yaml") loadYaml();
+    else if (node) reset(node);
     onReload();
   }
 
@@ -249,7 +418,8 @@
   function onKeydown(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") {
       e.preventDefault();
-      save();
+      if (mode === "yaml") saveYaml();
+      else save();
     }
   }
 </script>
@@ -288,6 +458,19 @@
     {#if node}
       <p class="path mono muted" title={node.path}>{node.path}</p>
     {/if}
+    <div
+      class="modes"
+      role="group"
+      aria-label="編集の方法"
+      title={!canSwitch(mode === "form" ? "yaml" : "form")
+        ? isNew
+          ? "YAMLを書き換えたあとはフォームに戻れません。戻すにはキャンセルしてやり直してください"
+          : "未保存の変更を保存するか破棄してから切り替えてください"
+        : undefined}
+    >
+      <button class:on={mode === "form"} aria-pressed={mode === "form"} disabled={mode !== "form" && !canSwitch("form")} onclick={() => setMode("form")}>フォーム</button>
+      <button class:on={mode === "yaml"} aria-pressed={mode === "yaml"} disabled={mode !== "yaml" && !canSwitch("yaml")} onclick={() => setMode("yaml")}>YAML</button>
+    </div>
 
     {#if externalChange}
       <div class="banner warning" role="alert">
@@ -303,9 +486,49 @@
     {/if}
     <DiagnosticList items={saveDiagnostics} />
 
-    {#if !editable && node}
+    {#if mode === "yaml"}
+      <div class="fields">
+        <div class="field">
+          <span class="lbl"><label for="yaml-text">YAML</label> <em class="mono">{node ? node.file_name : "<id>.yaml"}</em></span>
+          {#if yamlBase !== null}
+            <textarea
+              id="yaml-text"
+              class="yaml"
+              use:autoHeight={yamlText}
+              bind:value={yamlText}
+              onkeydown={onYamlKeydown}
+              onblur={() => (tabMovesFocus = false)}
+              rows="16"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+            ></textarea>
+          {:else}
+            <p class="muted">読み込み中…</p>
+          {/if}
+          <span class="hint">
+            {#if isNew}
+              フォームに入力した内容からひな形を作りました。<code>id</code> がファイル名になり、作成後は変更できません。
+            {:else}
+              ファイルの内容をそのまま編集します。
+            {/if}
+            コメントや書式もそのまま保存されます。保存の前に、フォームと同じ検証をします。Tab で字下げ、Shift+Tab で字上げ（Esc のあとに Tab で次の項目へ移動）。
+          </span>
+        </div>
+        {#if node}<DiagnosticList items={node.diagnostics} />{/if}
+      </div>
+
+      <footer>
+        <button class="primary" onclick={saveYaml} disabled={saving || yamlBase === null || (!isNew && !yamlDirty)}>
+          {saving ? "保存中…" : isNew ? "作成" : "保存"}
+        </button>
+        <button onclick={discard} disabled={!isNew && !yamlDirty}>{isNew ? "キャンセル" : "変更を破棄"}</button>
+        <span class="muted kbd">Ctrl+S で保存</span>
+      </footer>
+    {:else if !editable && node}
       <div class="banner error">
-        <span>このファイルにはエラーがあるため、GUIでは編集できません。外部エディタで修正すると自動で反映されます。</span>
+        <span>このファイルにはエラーがあるため、フォームでは編集できません。YAMLを直接編集して直すか、外部エディタで修正すると自動で反映されます。</span>
+        <button onclick={() => setMode("yaml")}>YAMLを直接編集する</button>
       </div>
       <DiagnosticList items={node.diagnostics} />
     {:else}
@@ -350,18 +573,18 @@
         <!-- ヘルプのボタンを置くため、label 要素で囲まない（押したときに入力欄へ移らないように） -->
         <div class="field">
           <span class="lbl"><label for="purpose-text">目的</label> <em>必須</em> <PurposeGuide /></span>
-          <textarea id="purpose-text" bind:value={draft.purpose} rows="3" placeholder="この目的が実現したい状態。親の目的にどう貢献するか"></textarea>
+          <textarea id="purpose-text" use:autoHeight={draft.purpose} bind:value={draft.purpose} rows="3" placeholder="この目的が実現したい状態。親の目的にどう貢献するか"></textarea>
         </div>
 
         <label class="field">
           <span class="lbl">判断原則</span>
-          <textarea bind:value={draft.principles} rows="3" placeholder="1行に1つ"></textarea>
+          <textarea use:autoHeight={draft.principles} bind:value={draft.principles} rows="3" placeholder="1行に1つ"></textarea>
           <span class="hint">1行に1つ。子目的からも参照されます。</span>
         </label>
 
         <label class="field">
           <span class="lbl">背景</span>
-          <textarea bind:value={draft.rationale} rows="3" placeholder="任意。なぜこの目的を設定したか"></textarea>
+          <textarea use:autoHeight={draft.rationale} bind:value={draft.rationale} rows="3" placeholder="任意。なぜこの目的を設定したか"></textarea>
           <span class="hint">子目的には引き継がれません。会議記録・作業履歴・認証情報は書かないでください。</span>
         </label>
 
@@ -524,6 +747,37 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .modes {
+    display: inline-flex;
+    margin-bottom: 4px;
+  }
+  .modes button {
+    padding: 3px 14px;
+    font-size: 12px;
+    border-radius: 0;
+  }
+  .modes button:first-child {
+    border-radius: var(--radius) 0 0 var(--radius);
+  }
+  .modes button:last-child {
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin-left: -1px;
+  }
+  .modes button.on {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+    position: relative;
+  }
+  textarea.yaml {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+    tab-size: 2;
+    white-space: pre;
+    overflow-x: auto;
   }
   .fields {
     display: grid;

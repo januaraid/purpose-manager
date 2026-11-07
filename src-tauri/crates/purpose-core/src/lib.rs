@@ -16,6 +16,8 @@ pub mod workspace;
 pub use diagnostics::{Code, Diagnostic, Severity};
 pub use model::{Purpose, PurposeFields, Status};
 pub use store::{
-    SaveError, SaveOutcome, SaveRequest, delete_purpose, init_workspace, save_purpose,
+    PurposeText, SaveError, SaveOutcome, SaveRequest, delete_purpose, init_workspace,
+    create_purpose_text, purpose_text_template, read_purpose_text, save_purpose,
+    save_purpose_text,
 };
 pub use workspace::{Effective, LoadError, Node, Snapshot, load};

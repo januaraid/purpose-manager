@@ -540,3 +540,124 @@ fn not_a_workspace() {
     assert_eq!(snap.name, "New");
     assert!(snap.nodes.is_empty());
 }
+
+#[test]
+fn yaml_text_save_keeps_comments_and_formatting() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = dir.path();
+    write(r, "x", &purpose_yaml("x", None, "active"));
+    let before = read_purpose_text(r, "x").unwrap();
+    let edited = format!("# 直接編集したメモ\n{}", before.text.replace("x の目的", "変更した目的"));
+    let out = save_purpose_text(r, "x", &edited, &before.hash).unwrap();
+    assert_eq!(fs::read_to_string(purpose_path(r, "x")).unwrap(), edited);
+    let snap = load(r, None).unwrap();
+    assert_eq!(snap.node("x").unwrap().hash, out.hash);
+    assert_eq!(fields_of(&snap, "x").purpose, "変更した目的");
+}
+
+#[test]
+fn yaml_text_save_rejects_invalid_content() {
+    let dir = sample_copy();
+    let r = dir.path();
+    let before = read_purpose_text(r, "acme-jobs").unwrap();
+    for bad in [
+        "id: [broken".to_string(),
+        before.text.replace("id: acme-jobs", "id: other-id"),
+        before.text.replace("parent: acme-corp", "parent: missing-parent"),
+    ] {
+        assert!(
+            matches!(save_purpose_text(r, "acme-jobs", &bad, &before.hash), Err(SaveError::Validation { .. })),
+            "{bad}"
+        );
+    }
+    assert_eq!(read_purpose_text(r, "acme-jobs").unwrap().text, before.text);
+}
+
+#[test]
+fn yaml_text_save_detects_external_change() {
+    let dir = sample_copy();
+    let r = dir.path();
+    let before = read_purpose_text(r, "acme-jobs").unwrap();
+    let external = before.text.replace("シンプルさを保つ", "外部エディタで変更");
+    fs::write(purpose_path(r, "acme-jobs"), &external).unwrap();
+    let mine = before.text.replace("シンプルさを保つ", "GUIで変更");
+    assert!(matches!(
+        save_purpose_text(r, "acme-jobs", &mine, &before.hash),
+        Err(SaveError::Conflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(purpose_path(r, "acme-jobs")).unwrap(), external);
+}
+
+#[test]
+fn yaml_text_can_fix_broken_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = dir.path();
+    write(r, "x", "id: x\nname: [broken\n");
+    let snap = load(r, None).unwrap();
+    assert!(snap.node("x").unwrap().fields.is_none());
+    let before = read_purpose_text(r, "x").unwrap();
+    save_purpose_text(r, "x", &purpose_yaml("x", None, "active"), &before.hash).unwrap();
+    assert!(load(r, None).unwrap().node("x").unwrap().fields.is_some());
+}
+
+#[test]
+fn yaml_text_rejects_path_like_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(read_purpose_text(dir.path(), "../workspace").is_err());
+    assert!(save_purpose_text(dir.path(), "a/b", "x", "h").is_err());
+}
+
+#[test]
+fn yaml_text_create_uses_id_as_file_name() {
+    let dir = sample_copy();
+    let r = dir.path();
+    let text = format!("# 新しい目的\n{}", purpose_yaml("acme-new", Some("acme-jobs"), "active"));
+    let out = create_purpose_text(r, &text).unwrap();
+    assert_eq!(out.id, "acme-new");
+    assert_eq!(fs::read_to_string(purpose_path(r, "acme-new")).unwrap(), text);
+    let snap = load(r, None).unwrap();
+    assert_eq!(snap.node("acme-new").unwrap().hash, out.hash);
+    assert!(!snap.node("acme-new").unwrap().has_errors());
+}
+
+#[test]
+fn yaml_text_create_rejects_bad_input() {
+    let dir = sample_copy();
+    let r = dir.path();
+    let before = fs::read_dir(r.join("purposes")).unwrap().count();
+    assert!(matches!(
+        create_purpose_text(r, &purpose_yaml("acme-jobs", Some("acme-corp"), "active")),
+        Err(SaveError::AlreadyExists)
+    ));
+    for bad in [
+        "name: [broken".to_string(),
+        "name: idなし\npurpose: x\n".to_string(),
+        purpose_yaml("Bad_ID", None, "active"),
+        purpose_yaml("orphan", Some("missing-parent"), "active"),
+        "id: no-name\nparent: null\nstatus: active\n".to_string(),
+    ] {
+        assert!(
+            matches!(create_purpose_text(r, &bad), Err(SaveError::Validation { .. })),
+            "{bad}"
+        );
+    }
+    assert_eq!(fs::read_dir(r.join("purposes")).unwrap().count(), before);
+}
+
+#[test]
+fn yaml_text_template_round_trips() {
+    let fields = PurposeFields {
+        id: "x".into(),
+        parent: Some("p".into()),
+        name: "名前".into(),
+        purpose: "目的".into(),
+        rationale: Some("".into()),
+        principles: Some(vec!["原則".into(), "".into()]),
+        status: Status::Active,
+        valid_from: None,
+        valid_until: None,
+        review_at: None,
+    };
+    let text = purpose_text_template(fields).unwrap();
+    assert!(text.contains("id: x\n") && text.contains("parent: p\n") && !text.contains("rationale"));
+}
